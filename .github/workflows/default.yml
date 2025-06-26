@@ -36,7 +36,7 @@ jobs:
           echo "🚀 Running Task: ${{ matrix.task }}"
           
           echo "📌 Listing all running processes with binary locations:"
-          ps -eo
+          ps 
       
           echo "⏲️ Sleeping for input sleep_time or 10s by default..."
           sleep "${{ github.event.inputs.sleep_time || '10' }}"
