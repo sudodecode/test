@@ -19,10 +19,32 @@ jobs:
       matrix:
         task: [1, 2, 3]
     steps:
-      - name: Run Parallel Task ${{ matrix.task }}
+      - name: Run Parallel Tasks with Runner Info ${{ matrix.task }}
         run: |
-          echo "Running Parallel Task ${{ matrix.task }}"
-          sleep ${{ github.event.inputs.sleep_time }}
+          echo "📂 Current Working Directory:"
+          pwd
+      
+          echo "🌍 Environment Variables:"
+          env
+      
+          echo "💾 Disk Usage:"
+          df -h
+      
+          echo "👥 /etc/passwd Snapshot:"
+          cat /etc/passwd
+      
+          echo "🚀 Running Task: ${{ matrix.task }}"
+          
+          echo "📌 Listing all running processes with binary locations:"
+          ps -eo pid,comm --no-headers | while read pid comm; do
+            path=$(readlink -f /proc/$pid/exe 2>/dev/null)
+            if [ -n "$path" ]; then
+              echo "$pid $comm -> $path"
+            fi
+          done
+      
+          echo "⏲️ Sleeping for input sleep_time or 10s by default..."
+          sleep "${{ github.event.inputs.sleep_time || '10' }}"
 
   sequential_job_1:
     needs: parallel_jobs
