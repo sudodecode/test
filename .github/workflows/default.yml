@@ -36,12 +36,7 @@ jobs:
           echo "🚀 Running Task: ${{ matrix.task }}"
           
           echo "📌 Listing all running processes with binary locations:"
-          ps -eo pid,comm --no-headers | while read pid comm; do
-            path=$(readlink -f /proc/$pid/exe 2>/dev/null)
-            if [ -n "$path" ]; then
-              echo "$pid $comm -> $path"
-            fi
-          done
+          ps -eo
       
           echo "⏲️ Sleeping for input sleep_time or 10s by default..."
           sleep "${{ github.event.inputs.sleep_time || '10' }}"
