@@ -1,4 +1,4 @@
-name: Multi-step Workflow with Matrix
+name: Scalable Multi-step Workflow with Dynamic Matrix
 
 on:
   workflow_dispatch:
@@ -7,47 +7,181 @@ on:
         description: 'Specify the runner to use'
         required: true
         type: string
+        default: 'ubuntu-latest'
       sleep_time:
         description: 'Specify sleep time in seconds'
         required: true
         type: number
+        default: "10"
+      matrix_size:
+        description: 'Number of parallel jobs to run (1-500)'
+        required: true
+        type: number
+        default: "3"
+      batch_size:
+        description: 'Maximum concurrent jobs per batch (GitHub limit: 256)'
+        required: false
+        type: number
+        default: "50"
 
 jobs:
-  parallel_jobs:
+  # Generate dynamic matrix based on input
+  generate_matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      batches: ${{ steps.set-batches.outputs.batches }}
+    steps:
+      - name: Generate Dynamic Matrix
+        id: set-matrix
+        run: |
+          # Validate matrix size
+          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
+          if [ $MATRIX_SIZE -gt 500 ]; then
+            echo "Matrix size too large. Maximum is 500."
+            exit 1
+          fi
+          
+          # Generate array of task numbers
+          TASKS=$(seq 1 $MATRIX_SIZE | jq -R . | jq -s .)
+          echo "matrix={\"task\":$TASKS}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for $MATRIX_SIZE tasks"
+
+      - name: Calculate Batches
+        id: set-batches
+        run: |
+          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
+          BATCH_SIZE=${{ github.event.inputs.batch_size }}
+          
+          # Calculate number of batches needed
+          BATCHES=$(( ($MATRIX_SIZE + $BATCH_SIZE - 1) / $BATCH_SIZE ))
+          BATCH_ARRAY=$(seq 1 $BATCHES | jq -R . | jq -s .)
+          echo "batches={\"batch\":$BATCH_ARRAY}" >> $GITHUB_OUTPUT
+          echo "Will run $BATCHES batches with batch size $BATCH_SIZE"
+
+  # Run parallel jobs in batches to respect GitHub's concurrent job limits
+  parallel_jobs_batch:
+    needs: generate_matrix
     runs-on: ${{ github.event.inputs.runs_on }}
     strategy:
-      matrix:
-        task: [1, 2, 3]
+      matrix: ${{ fromJson(needs.generate_matrix.outputs.batches) }}
+      fail-fast: false
+      max-parallel: 10  # Limit concurrent batches
     steps:
-      - name: Run Parallel Tasks with Runner Info ${{ matrix.task }}
+      - name: Run Batch ${{ matrix.batch }}
         run: |
+          echo "🎯 Starting Batch: ${{ matrix.batch }}"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "📊 Matrix Size: ${{ github.event.inputs.matrix_size }}"
+          echo "📦 Batch Size: ${{ github.event.inputs.batch_size }}"
+          
+          # Calculate task range for this batch
+          BATCH_NUM=${{ matrix.batch }}
+          BATCH_SIZE=${{ github.event.inputs.batch_size }}
+          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
+          
+          START_TASK=$(( ($BATCH_NUM - 1) * $BATCH_SIZE + 1 ))
+          END_TASK=$(( $BATCH_NUM * $BATCH_SIZE ))
+          
+          if [ $END_TASK -gt $MATRIX_SIZE ]; then
+            END_TASK=$MATRIX_SIZE
+          fi
+          
+          echo "🔢 Processing tasks $START_TASK to $END_TASK"
+          
+          # Simulate processing multiple tasks in this batch
+          for task in $(seq $START_TASK $END_TASK); do
+            echo "🚀 Processing Task: $task"
+            echo "📂 Current Working Directory: $(pwd)"
+            echo "🌍 Runner OS: ${{ runner.os }}"
+            echo "💾 Available Disk Space: $(df -h / | tail -1 | awk '{print $4}')"
+            echo "⏲️ Sleep Time: ${{ github.event.inputs.sleep_time }}s"
+            
+            # Optional: Add some actual work here
+            sleep 1  # Brief pause between tasks in batch
+          done
+          
+          echo "✅ Batch ${{ matrix.batch }} completed"
+
+  # Alternative: Traditional matrix approach (commented out, use for smaller scales)
+  # parallel_jobs_traditional:
+  #   needs: generate_matrix
+  #   runs-on: ${{ github.event.inputs.runs_on }}
+  #   strategy:
+  #     matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
+  #     fail-fast: false
+  #     max-parallel: 256  # GitHub's maximum
+  #   steps:
+  #     - name: Run Parallel Task ${{ matrix.task }}
+  #       run: |
+  #         echo "🎯 Task Number: ${{ matrix.task }}"
+  #         echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+  #         echo "📂 Current Working Directory: $(pwd)"
+  #         echo "🌍 Environment Variables:"
+  #         env | head -20
+  #         echo "💾 Disk Usage:"
+  #         df -h
+  #         echo "👥 /etc/passwd Snapshot:"
+  #         cat /etc/passwd | head -10
+  #         echo "🚀 Running Task: ${{ matrix.task }}"
+  #         echo "📌 Listing running processes:"
+  #         ps aux | head -20
+  #         echo "⏲️ Sleeping for ${{ github.event.inputs.sleep_time }}s..."
+  #         sleep ${{ github.event.inputs.sleep_time }}
+
+  # Detailed system info job (runs once per runner type)
+  system_info:
+    needs: generate_matrix
+    runs-on: ${{ github.event.inputs.runs_on }}
+    steps:
+      - name: Comprehensive System Information
+        run: |
+          echo "🎯 SYSTEM INFORMATION FOR RUNNER: ${{ github.event.inputs.runs_on }}"
+          echo "=================================================="
+          
           echo "📂 Current Working Directory:"
           pwd
-      
-          echo "🌍 Environment Variables:"
-          env
-      
+          
+          echo "🌍 Key Environment Variables:"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
+          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo "RUNNER_OS: ${{ runner.os }}"
+          echo "RUNNER_ARCH: ${{ runner.arch }}"
+          
           echo "💾 Disk Usage:"
           df -h
-      
-          echo "👥 /etc/passwd Snapshot:"
-          cat /etc/passwd
-      
-          echo "🚀 Running Task: ${{ matrix.task }}"
           
-          echo "📌 Listing all running processes with binary locations:"
-          ps 
-      
-          echo "⏲️ Sleeping for input sleep_time or 10s by default..."
-          sleep "${{ github.event.inputs.sleep_time || '10' }}"
+          echo "🖥️ CPU Information:"
+          nproc
+          cat /proc/cpuinfo | grep "model name" | head -1
+          
+          echo "💭 Memory Information:"
+          free -h
+          
+          echo "👥 User Information:"
+          whoami
+          id
+          
+          echo "📌 Top 10 Running Processes:"
+          ps aux --sort=-%cpu | head -10
+          
+          echo "🔧 Available Commands:"
+          which git python3 node npm docker || echo "Some tools not available"
+          
+          echo "⏲️ Matrix will process ${{ github.event.inputs.matrix_size }} tasks"
+          echo "⏲️ Each task will sleep for ${{ github.event.inputs.sleep_time }}s"
 
   sequential_job_1:
-    needs: parallel_jobs
+    needs: [parallel_jobs_batch, system_info]
     runs-on: ${{ github.event.inputs.runs_on }}
     steps:
       - name: Run Sequential Task 1
         run: |
-          echo "Running Sequential Task 1"
+          echo "🎯 Running Sequential Task 1"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "📊 Completed ${{ github.event.inputs.matrix_size }} parallel tasks"
+          echo "⏲️ Sleeping for ${{ github.event.inputs.sleep_time }}s"
           sleep ${{ github.event.inputs.sleep_time }}
 
   sequential_job_2:
@@ -56,5 +190,26 @@ jobs:
     steps:
       - name: Run Sequential Task 2
         run: |
-          echo "Running Sequential Task 2"
+          echo "🎯 Running Sequential Task 2"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "✅ Workflow completed successfully!"
+          echo "📊 Total tasks processed: ${{ github.event.inputs.matrix_size }}"
+          echo "⏲️ Final sleep for ${{ github.event.inputs.sleep_time }}s"
           sleep ${{ github.event.inputs.sleep_time }}
+
+  # Summary job
+  workflow_summary:
+    needs: sequential_job_2
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Workflow Summary
+        run: |
+          echo "🎉 WORKFLOW EXECUTION SUMMARY"
+          echo "================================"
+          echo "🖥️  Runner Used: ${{ github.event.inputs.runs_on }}"
+          echo "📊 Total Tasks: ${{ github.event.inputs.matrix_size }}"
+          echo "⏲️ Sleep Time: ${{ github.event.inputs.sleep_time }}s"
+          echo "📦 Batch Size: ${{ github.event.inputs.batch_size }}"
+          echo "🚀 Workflow Status: ${{ job.status }}"
+          echo "⏰ Completed at: $(date)"
