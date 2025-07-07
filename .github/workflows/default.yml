@@ -12,17 +12,15 @@ on:
         description: 'Specify sleep time in seconds'
         required: true
         type: number
-        default: "10"
       matrix_size:
         description: 'Number of parallel jobs to run (1-500)'
         required: true
         type: number
-        default: "3"
       batch_size:
         description: 'Maximum concurrent jobs per batch (GitHub limit: 256)'
         required: false
         type: number
-        default: "50"
+
 
 jobs:
   # Generate dynamic matrix based on input
@@ -42,10 +40,19 @@ jobs:
             exit 1
           fi
           
-          # Generate array of task numbers
-          TASKS=$(seq 1 $MATRIX_SIZE | jq -R . | jq -s .)
-          echo "matrix={\"task\":$TASKS}" >> $GITHUB_OUTPUT
+          # Generate array of task numbers using bash array and proper JSON formatting
+          TASKS_JSON="["
+          for i in $(seq 1 $MATRIX_SIZE); do
+            if [ $i -gt 1 ]; then
+              TASKS_JSON="$TASKS_JSON,"
+            fi
+            TASKS_JSON="$TASKS_JSON$i"
+          done
+          TASKS_JSON="$TASKS_JSON]"
+          
+          echo "matrix={\"task\":$TASKS_JSON}" >> $GITHUB_OUTPUT
           echo "Generated matrix for $MATRIX_SIZE tasks"
+          echo "Matrix JSON: {\"task\":$TASKS_JSON}"
 
       - name: Calculate Batches
         id: set-batches
@@ -55,9 +62,20 @@ jobs:
           
           # Calculate number of batches needed
           BATCHES=$(( ($MATRIX_SIZE + $BATCH_SIZE - 1) / $BATCH_SIZE ))
-          BATCH_ARRAY=$(seq 1 $BATCHES | jq -R . | jq -s .)
-          echo "batches={\"batch\":$BATCH_ARRAY}" >> $GITHUB_OUTPUT
+          
+          # Generate batch array
+          BATCH_JSON="["
+          for i in $(seq 1 $BATCHES); do
+            if [ $i -gt 1 ]; then
+              BATCH_JSON="$BATCH_JSON,"
+            fi
+            BATCH_JSON="$BATCH_JSON$i"
+          done
+          BATCH_JSON="$BATCH_JSON]"
+          
+          echo "batches={\"batch\":$BATCH_JSON}" >> $GITHUB_OUTPUT
           echo "Will run $BATCHES batches with batch size $BATCH_SIZE"
+          echo "Batch JSON: {\"batch\":$BATCH_JSON}"
 
   # Run parallel jobs in batches to respect GitHub's concurrent job limits
   parallel_jobs_batch:
