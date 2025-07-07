@@ -12,7 +12,7 @@ on:
         description: 'Specify sleep time in seconds'
         required: true
         type: number
-        default: 10
+
 
 jobs:
   # Generate matrix for 50 jobs
@@ -65,79 +65,74 @@ jobs:
           
           # Get number of CPU cores for optimal stress testing
           if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
-            CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "2")
+            if command -v nproc >/dev/null 2>&1; then
+              CPU_CORES=$(nproc)
+            elif command -v sysctl >/dev/null 2>&1; then
+              CPU_CORES=$(sysctl -n hw.ncpu)
+            else
+              CPU_CORES=2
+            fi
             echo "CPU Cores detected: $CPU_CORES"
             echo "Launching $CPU_CORES stress processes..."
             
-            # Launch CPU stress processes in background
+            # Create a simple stress test function
+            stress_cpu() {
+              local process_id=$1
+              echo "Starting stress process $process_id"
+              local end_time=$(($(date +%s) + 60))
+              local counter=0
+              while [ $(date +%s) -lt $end_time ]; do
+                # Simple CPU-intensive operations
+                counter=$((counter + 1))
+                result=$((counter * 137 + counter % 1000))
+                if [ $counter -gt 100000 ]; then
+                  counter=0
+                fi
+              done
+              echo "Stress process $process_id completed"
+            }
+            
+            # Launch stress processes in background
+            pids=""
             for i in $(seq 1 $CPU_CORES); do
-              (
-                echo "Starting stress process $i/$CPU_CORES"
-                # CPU-intensive calculation loop
-                start_time=$(date +%s)
-                end_time=$((start_time + 60))
-                counter=0
-                while [ $(date +%s) -lt $end_time ]; do
-                  # Mathematical operations to stress CPU
-                  result=$((counter * counter + counter / 2))
-                  counter=$((counter + 1))
-                  # Reset counter periodically to prevent overflow
-                  if [ $counter -gt 1000000 ]; then
-                    counter=0
-                  fi
-                done
-                echo "Stress process $i completed"
-              ) &
+              stress_cpu $i &
+              pids="$pids $!"
             done
             
-            # Monitor system during stress test
-            echo "Monitoring system performance during stress test..."
-            for second in $(seq 1 12); do  # Monitor for 60 seconds, check every 5 seconds
+            # Monitor system during stress test (simplified)
+            echo "Monitoring system performance..."
+            for iteration in 1 2 3 4 5 6 7 8 9 10 11 12; do
               sleep 5
-              echo "[$((second * 5))s] Load average: $(uptime | awk -F'load average:' '{print $2}' | xargs)"
-              if command -v top &>/dev/null; then
-                echo "[$((second * 5))s] CPU usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}' || echo 'N/A')%"
+              seconds=$((iteration * 5))
+              echo "[$seconds s] Stress test running..."
+              if command -v uptime >/dev/null 2>&1; then
+                uptime
               fi
             done
             
             # Wait for all stress processes to complete
-            wait
+            for pid in $pids; do
+              wait $pid 2>/dev/null || true
+            done
             
           elif [ "${{ runner.os }}" == "Windows" ]; then
             echo "Running Windows CPU stress test..."
-            # Windows PowerShell stress test
+            # Simplified Windows stress test
             powershell -Command "
-              \$cores = (Get-WmiObject -Class Win32_ComputerSystem).NumberOfLogicalProcessors
-              Write-Output \"CPU Cores detected: \$cores\"
-              Write-Output \"Starting CPU stress test for 60 seconds...\"
-              
-              # Create stress test jobs
-              \$jobs = @()
-              for (\$i = 1; \$i -le \$cores; \$i++) {
-                \$job = Start-Job -ScriptBlock {
-                  \$startTime = Get-Date
-                  \$endTime = \$startTime.AddSeconds(60)
-                  \$counter = 0
-                  while ((Get-Date) -lt \$endTime) {
-                    \$result = \$counter * \$counter + \$counter / 2
-                    \$counter++
-                    if (\$counter -gt 1000000) { \$counter = 0 }
-                  }
-                }
-                \$jobs += \$job
-                Write-Output \"Started stress job \$i of \$cores\"
+            Write-Output 'Starting Windows CPU stress test...'
+            \$startTime = Get-Date
+            \$endTime = \$startTime.AddMinutes(1)
+            \$counter = 0
+            while ((Get-Date) -lt \$endTime) {
+              \$counter++
+              \$result = \$counter * 137 + (\$counter % 1000)
+              if (\$counter -gt 100000) { \$counter = 0 }
+              if ((\$counter % 10000) -eq 0) {
+                \$elapsed = ((Get-Date) - \$startTime).TotalSeconds
+                Write-Output \"[\$([math]::Round(\$elapsed))s] CPU stress running...\"
               }
-              
-              # Monitor for 60 seconds
-              for (\$sec = 5; \$sec -le 60; \$sec += 5) {
-                Start-Sleep 5
-                \$cpuUsage = Get-WmiObject -Class Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
-                Write-Output \"[\$sec`s] CPU Usage: \$cpuUsage%\"
-              }
-              
-              # Wait for all jobs to complete
-              \$jobs | Wait-Job | Remove-Job
-              Write-Output \"All stress jobs completed\"
+            }
+            Write-Output 'Windows CPU stress test completed'
             "
           fi
           
@@ -148,17 +143,17 @@ jobs:
           echo "📊 POST-STRESS SYSTEM STATE"
           echo "==========================="
           if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
-            echo "Current Load: $(uptime | awk -F'load average:' '{print $2}' | xargs)"
-            echo "Memory Usage: $(free -h 2>/dev/null | grep '^Mem:' | awk '{print "Used: " $3 " / " $2 " (" int($3/$2 * 100) "%)"}' || echo 'N/A')"
-            echo "Top CPU Process: $(ps aux --sort=-%cpu | head -2 | tail -1 | awk '{print $11 " (" $3 "%)"}')"
+            echo "System status after stress test:"
+            if command -v uptime >/dev/null 2>&1; then
+              uptime
+            fi
+            if command -v free >/dev/null 2>&1; then
+              free -h
+            fi
+            echo "Stress test completed successfully"
           elif [ "${{ runner.os }}" == "Windows" ]; then
-            powershell -Command "
-              \$cpu = Get-WmiObject -Class Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
-              \$mem = Get-WmiObject -Class Win32_OperatingSystem
-              \$memUsed = [math]::Round(((\$mem.TotalVisibleMemorySize - \$mem.FreePhysicalMemory) / \$mem.TotalVisibleMemorySize) * 100, 2)
-              Write-Output \"Current CPU: \$cpu%\"
-              Write-Output \"Memory Usage: \$memUsed%\"
-            "
+            echo "Windows system status after stress test:"
+            powershell -Command "Get-Date; Write-Output 'Stress test completed successfully'"
           fi
           echo ""
           
