@@ -58,6 +58,109 @@ jobs:
           echo "📅 Execution Time: $(date)"
           echo "🔢 Matrix Job ID: ${{ matrix.job_number }}/50"
           echo ""
+          echo "⚡ CPU STRESS TEST"
+          echo "=================="
+          echo "Starting 1-minute CPU stress test..."
+          echo "Start Time: $(date)"
+          
+          # Get number of CPU cores for optimal stress testing
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "2")
+            echo "CPU Cores detected: $CPU_CORES"
+            echo "Launching $CPU_CORES stress processes..."
+            
+            # Launch CPU stress processes in background
+            for i in $(seq 1 $CPU_CORES); do
+              (
+                echo "Starting stress process $i/$CPU_CORES"
+                # CPU-intensive calculation loop
+                start_time=$(date +%s)
+                end_time=$((start_time + 60))
+                counter=0
+                while [ $(date +%s) -lt $end_time ]; do
+                  # Mathematical operations to stress CPU
+                  result=$((counter * counter + counter / 2))
+                  counter=$((counter + 1))
+                  # Reset counter periodically to prevent overflow
+                  if [ $counter -gt 1000000 ]; then
+                    counter=0
+                  fi
+                done
+                echo "Stress process $i completed"
+              ) &
+            done
+            
+            # Monitor system during stress test
+            echo "Monitoring system performance during stress test..."
+            for second in $(seq 1 12); do  # Monitor for 60 seconds, check every 5 seconds
+              sleep 5
+              echo "[$((second * 5))s] Load average: $(uptime | awk -F'load average:' '{print $2}' | xargs)"
+              if command -v top &>/dev/null; then
+                echo "[$((second * 5))s] CPU usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}' || echo 'N/A')%"
+              fi
+            done
+            
+            # Wait for all stress processes to complete
+            wait
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "Running Windows CPU stress test..."
+            # Windows PowerShell stress test
+            powershell -Command "
+              \$cores = (Get-WmiObject -Class Win32_ComputerSystem).NumberOfLogicalProcessors
+              Write-Output \"CPU Cores detected: \$cores\"
+              Write-Output \"Starting CPU stress test for 60 seconds...\"
+              
+              # Create stress test jobs
+              \$jobs = @()
+              for (\$i = 1; \$i -le \$cores; \$i++) {
+                \$job = Start-Job -ScriptBlock {
+                  \$startTime = Get-Date
+                  \$endTime = \$startTime.AddSeconds(60)
+                  \$counter = 0
+                  while ((Get-Date) -lt \$endTime) {
+                    \$result = \$counter * \$counter + \$counter / 2
+                    \$counter++
+                    if (\$counter -gt 1000000) { \$counter = 0 }
+                  }
+                }
+                \$jobs += \$job
+                Write-Output \"Started stress job \$i of \$cores\"
+              }
+              
+              # Monitor for 60 seconds
+              for (\$sec = 5; \$sec -le 60; \$sec += 5) {
+                Start-Sleep 5
+                \$cpuUsage = Get-WmiObject -Class Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
+                Write-Output \"[\$sec`s] CPU Usage: \$cpuUsage%\"
+              }
+              
+              # Wait for all jobs to complete
+              \$jobs | Wait-Job | Remove-Job
+              Write-Output \"All stress jobs completed\"
+            "
+          fi
+          
+          echo "CPU Stress Test completed at: $(date)"
+          echo "✅ 1-minute CPU stress test finished"
+          echo ""
+          
+          echo "📊 POST-STRESS SYSTEM STATE"
+          echo "==========================="
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            echo "Current Load: $(uptime | awk -F'load average:' '{print $2}' | xargs)"
+            echo "Memory Usage: $(free -h 2>/dev/null | grep '^Mem:' | awk '{print "Used: " $3 " / " $2 " (" int($3/$2 * 100) "%)"}' || echo 'N/A')"
+            echo "Top CPU Process: $(ps aux --sort=-%cpu | head -2 | tail -1 | awk '{print $11 " (" $3 "%)"}')"
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            powershell -Command "
+              \$cpu = Get-WmiObject -Class Win32_Processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
+              \$mem = Get-WmiObject -Class Win32_OperatingSystem
+              \$memUsed = [math]::Round(((\$mem.TotalVisibleMemorySize - \$mem.FreePhysicalMemory) / \$mem.TotalVisibleMemorySize) * 100, 2)
+              Write-Output \"Current CPU: \$cpu%\"
+              Write-Output \"Memory Usage: \$memUsed%\"
+            "
+          fi
+          echo ""
           
           echo "📂 WORKSPACE INFORMATION"
           echo "======================="
@@ -128,24 +231,28 @@ jobs:
           
           # Check tools based on OS
           if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
-            for tool in git node npm python3 python pip pip3 docker kubectl terraform aws gcloud; do
-              if command -v $tool &> /dev/null; then
-                VERSION=$(${tool} --version 2>/dev/null | head -1 || echo "installed")
-                echo "✅ $tool: $VERSION"
-              else
-                echo "❌ $tool: not found"
-              fi
-            done
+            # Check each tool individually to avoid exit code issues
+            echo "Git: $(git --version 2>/dev/null || echo 'not found')"
+            echo "Node: $(node --version 2>/dev/null || echo 'not found')"
+            echo "NPM: $(npm --version 2>/dev/null || echo 'not found')"
+            echo "Python3: $(python3 --version 2>/dev/null || echo 'not found')"
+            echo "Python: $(python --version 2>/dev/null || echo 'not found')"
+            echo "Pip3: $(pip3 --version 2>/dev/null || echo 'not found')"
+            echo "Pip: $(pip --version 2>/dev/null || echo 'not found')"
+            echo "Docker: $(docker --version 2>/dev/null || echo 'not found')"
+            echo "Kubectl: $(kubectl version --client=true --short=true 2>/dev/null || echo 'not found')"
+            echo "Terraform: $(terraform --version 2>/dev/null | head -1 || echo 'not found')"
+            echo "AWS CLI: $(aws --version 2>/dev/null || echo 'not found')"
+            echo "GCloud: $(gcloud --version 2>/dev/null | head -1 || echo 'not found')"
           elif [ "${{ runner.os }}" == "Windows" ]; then
-            $tools = @("git", "node", "npm", "python", "pip", "docker", "kubectl", "terraform", "aws", "gcloud")
-            foreach ($tool in $tools) {
-              try {
-                $version = & $tool --version 2>$null | Select-Object -First 1
-                Write-Output "✅ $tool: $version"
-              } catch {
-                Write-Output "❌ $tool: not found"
-              }
-            }
+            # Use cmd commands for Windows
+            echo "Git: $(git --version 2>nul || echo 'not found')"
+            echo "Node: $(node --version 2>nul || echo 'not found')"
+            echo "NPM: $(npm --version 2>nul || echo 'not found')"
+            echo "Python: $(python --version 2>nul || echo 'not found')"
+            echo "Pip: $(pip --version 2>nul || echo 'not found')"
+            echo "Docker: $(docker --version 2>nul || echo 'not found')"
+            echo "Checking additional Windows tools..."
           fi
           
           echo ""
