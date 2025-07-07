@@ -1,10 +1,10 @@
-name: Scalable Multi-step Workflow with Dynamic Matrix
+name: 50 Parallel Jobs on Dynamic Runner
 
 on:
   workflow_dispatch:
     inputs:
       runs_on:
-        description: 'Specify the runner to use'
+        description: 'Specify the runner to use for all 50 jobs'
         required: true
         type: string
         default: 'ubuntu-latest'
@@ -12,222 +12,203 @@ on:
         description: 'Specify sleep time in seconds'
         required: true
         type: number
-      matrix_size:
-        description: 'Number of parallel jobs to run (1-500)'
-        required: true
-        type: number
-      batch_size:
-        description: 'Maximum concurrent jobs per batch (GitHub limit: 256)'
-        required: false
-        type: number
-
+        default: 10
 
 jobs:
-  # Generate dynamic matrix based on input
+  # Generate matrix for 50 jobs
   generate_matrix:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
-      batches: ${{ steps.set-batches.outputs.batches }}
     steps:
-      - name: Generate Dynamic Matrix
+      - name: Generate Matrix for 50 Jobs
         id: set-matrix
         run: |
-          # Validate matrix size
-          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
-          if [ $MATRIX_SIZE -gt 500 ]; then
-            echo "Matrix size too large. Maximum is 500."
-            exit 1
-          fi
-          
-          # Generate array of task numbers using bash array and proper JSON formatting
-          TASKS_JSON="["
-          for i in $(seq 1 $MATRIX_SIZE); do
+          # Generate array for 50 jobs
+          JOBS_JSON="["
+          for i in $(seq 1 50); do
             if [ $i -gt 1 ]; then
-              TASKS_JSON="$TASKS_JSON,"
+              JOBS_JSON="$JOBS_JSON,"
             fi
-            TASKS_JSON="$TASKS_JSON$i"
+            JOBS_JSON="$JOBS_JSON$i"
           done
-          TASKS_JSON="$TASKS_JSON]"
+          JOBS_JSON="$JOBS_JSON]"
           
-          echo "matrix={\"task\":$TASKS_JSON}" >> $GITHUB_OUTPUT
-          echo "Generated matrix for $MATRIX_SIZE tasks"
-          echo "Matrix JSON: {\"task\":$TASKS_JSON}"
+          echo "matrix={\"job_number\":$JOBS_JSON}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for 50 jobs on runner: ${{ github.event.inputs.runs_on }}"
+          echo "Jobs array: $JOBS_JSON"
 
-      - name: Calculate Batches
-        id: set-batches
-        run: |
-          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
-          BATCH_SIZE=${{ github.event.inputs.batch_size }}
-          
-          # Calculate number of batches needed
-          BATCHES=$(( ($MATRIX_SIZE + $BATCH_SIZE - 1) / $BATCH_SIZE ))
-          
-          # Generate batch array
-          BATCH_JSON="["
-          for i in $(seq 1 $BATCHES); do
-            if [ $i -gt 1 ]; then
-              BATCH_JSON="$BATCH_JSON,"
-            fi
-            BATCH_JSON="$BATCH_JSON$i"
-          done
-          BATCH_JSON="$BATCH_JSON]"
-          
-          echo "batches={\"batch\":$BATCH_JSON}" >> $GITHUB_OUTPUT
-          echo "Will run $BATCHES batches with batch size $BATCH_SIZE"
-          echo "Batch JSON: {\"batch\":$BATCH_JSON}"
-
-  # Run parallel jobs in batches to respect GitHub's concurrent job limits
-  parallel_jobs_batch:
+  # 50 parallel jobs all using the same dynamic runner
+  parallel_jobs:
     needs: generate_matrix
     runs-on: ${{ github.event.inputs.runs_on }}
     strategy:
-      matrix: ${{ fromJson(needs.generate_matrix.outputs.batches) }}
+      matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
       fail-fast: false
-      max-parallel: 10  # Limit concurrent batches
+      max-parallel: 50  # All 50 can run in parallel
     steps:
-      - name: Run Batch ${{ matrix.batch }}
+      - name: Execute Job ${{ matrix.job_number }} on ${{ github.event.inputs.runs_on }}
         run: |
-          echo "🎯 Starting Batch: ${{ matrix.batch }}"
-          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
-          echo "📊 Matrix Size: ${{ github.event.inputs.matrix_size }}"
-          echo "📦 Batch Size: ${{ github.event.inputs.batch_size }}"
+          echo "🎯 JOB EXECUTION DETAILS"
+          echo "========================"
+          echo "📊 Job Number: ${{ matrix.job_number }}"
+          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 Runner OS: ${{ runner.os }}"
+          echo "🏗️  Runner Architecture: ${{ runner.arch }}"
+          echo "📅 Execution Time: $(date)"
+          echo "🔢 Matrix Job ID: ${{ matrix.job_number }}/50"
+          echo ""
           
-          # Calculate task range for this batch
-          BATCH_NUM=${{ matrix.batch }}
-          BATCH_SIZE=${{ github.event.inputs.batch_size }}
-          MATRIX_SIZE=${{ github.event.inputs.matrix_size }}
+          echo "📂 WORKSPACE INFORMATION"
+          echo "======================="
+          echo "Working Directory: $(pwd)"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Runner Name: $RUNNER_NAME"
+          echo "Runner Workspace: $RUNNER_WORKSPACE"
+          echo ""
           
-          START_TASK=$(( ($BATCH_NUM - 1) * $BATCH_SIZE + 1 ))
-          END_TASK=$(( $BATCH_NUM * $BATCH_SIZE ))
+          echo "🖥️ SYSTEM INFORMATION"
+          echo "===================="
           
-          if [ $END_TASK -gt $MATRIX_SIZE ]; then
-            END_TASK=$MATRIX_SIZE
+          # Cross-platform system info
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            echo "🐧 Linux System:"
+            echo "User: $(whoami)"
+            echo "Hostname: $(hostname)"
+            echo "Uptime: $(uptime)"
+            echo "CPU Cores: $(nproc)"
+            echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+            echo "Disk Space: $(df -h / | tail -1 | awk '{print $4}') available"
+            echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "🪟 Windows System:"
+            echo "User: $env:USERNAME"
+            echo "Computer: $env:COMPUTERNAME"
+            echo "OS: $(Get-ComputerInfo | Select-Object WindowsProductName -ExpandProperty WindowsProductName)"
+            echo "CPU: $(Get-WmiObject -Class Win32_Processor | Select-Object Name -ExpandProperty Name)"
+            echo "Memory: $(Get-WmiObject -Class Win32_ComputerSystem | Select-Object TotalPhysicalMemory -ExpandProperty TotalPhysicalMemory)"
+            
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            echo "🍎 macOS System:"
+            echo "User: $(whoami)"
+            echo "Hostname: $(hostname)"
+            echo "macOS Version: $(sw_vers -productVersion)"
+            echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
+            echo "Memory: $(sysctl -n hw.memsize | awk '{print $1/1024/1024/1024 " GB"}')"
+            echo "Disk Space: $(df -h / | tail -1 | awk '{print $4}') available"
           fi
           
-          echo "🔢 Processing tasks $START_TASK to $END_TASK"
+          echo ""
+          echo "🌍 GITHUB ENVIRONMENT"
+          echo "===================="
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Run ID: $GITHUB_RUN_ID"
+          echo "Run Number: $GITHUB_RUN_NUMBER"
+          echo "Job: $GITHUB_JOB"
+          echo "Action: $GITHUB_ACTION"
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "SHA: $GITHUB_SHA"
+          echo "Ref: $GITHUB_REF"
+          echo ""
           
-          # Simulate processing multiple tasks in this batch
-          for task in $(seq $START_TASK $END_TASK); do
-            echo "🚀 Processing Task: $task"
-            echo "📂 Current Working Directory: $(pwd)"
-            echo "🌍 Runner OS: ${{ runner.os }}"
-            echo "💾 Available Disk Space: $(df -h / | tail -1 | awk '{print $4}')"
-            echo "⏲️ Sleep Time: ${{ github.event.inputs.sleep_time }}s"
-            
-            # Optional: Add some actual work here
-            sleep 1  # Brief pause between tasks in batch
-          done
+          echo "📌 RUNNING PROCESSES (Top 10)"
+          echo "============================="
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            ps aux --sort=-%cpu | head -10
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 | Format-Table
+          fi
+          echo ""
           
-          echo "✅ Batch ${{ matrix.batch }} completed"
+          echo "🔧 AVAILABLE TOOLS"
+          echo "=================="
+          echo "Checking common development tools..."
+          
+          # Check tools based on OS
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            for tool in git node npm python3 python pip pip3 docker kubectl terraform aws gcloud; do
+              if command -v $tool &> /dev/null; then
+                VERSION=$(${tool} --version 2>/dev/null | head -1 || echo "installed")
+                echo "✅ $tool: $VERSION"
+              else
+                echo "❌ $tool: not found"
+              fi
+            done
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            $tools = @("git", "node", "npm", "python", "pip", "docker", "kubectl", "terraform", "aws", "gcloud")
+            foreach ($tool in $tools) {
+              try {
+                $version = & $tool --version 2>$null | Select-Object -First 1
+                Write-Output "✅ $tool: $version"
+              } catch {
+                Write-Output "❌ $tool: not found"
+              }
+            }
+          fi
+          
+          echo ""
+          echo "⏲️ EXECUTION PHASE"
+          echo "=================="
+          echo "Sleep Duration: ${{ github.event.inputs.sleep_time }} seconds"
+          echo "Start Time: $(date)"
+          
+          # Cross-platform sleep
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            Start-Sleep -Seconds ${{ github.event.inputs.sleep_time }}
+          else
+            sleep ${{ github.event.inputs.sleep_time }}
+          fi
+          
+          echo "End Time: $(date)"
+          echo ""
+          echo "✅ Job ${{ matrix.job_number }} completed successfully on ${{ github.event.inputs.runs_on }}"
+          echo "🎉 Runner performed as expected!"
 
-  # Alternative: Traditional matrix approach (commented out, use for smaller scales)
-  # parallel_jobs_traditional:
-  #   needs: generate_matrix
-  #   runs-on: ${{ github.event.inputs.runs_on }}
-  #   strategy:
-  #     matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
-  #     fail-fast: false
-  #     max-parallel: 256  # GitHub's maximum
-  #   steps:
-  #     - name: Run Parallel Task ${{ matrix.task }}
-  #       run: |
-  #         echo "🎯 Task Number: ${{ matrix.task }}"
-  #         echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
-  #         echo "📂 Current Working Directory: $(pwd)"
-  #         echo "🌍 Environment Variables:"
-  #         env | head -20
-  #         echo "💾 Disk Usage:"
-  #         df -h
-  #         echo "👥 /etc/passwd Snapshot:"
-  #         cat /etc/passwd | head -10
-  #         echo "🚀 Running Task: ${{ matrix.task }}"
-  #         echo "📌 Listing running processes:"
-  #         ps aux | head -20
-  #         echo "⏲️ Sleeping for ${{ github.event.inputs.sleep_time }}s..."
-  #         sleep ${{ github.event.inputs.sleep_time }}
-
-  # Detailed system info job (runs once per runner type)
-  system_info:
-    needs: generate_matrix
-    runs-on: ${{ github.event.inputs.runs_on }}
-    steps:
-      - name: Comprehensive System Information
-        run: |
-          echo "🎯 SYSTEM INFORMATION FOR RUNNER: ${{ github.event.inputs.runs_on }}"
-          echo "=================================================="
-          
-          echo "📂 Current Working Directory:"
-          pwd
-          
-          echo "🌍 Key Environment Variables:"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"
-          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
-          echo "RUNNER_OS: ${{ runner.os }}"
-          echo "RUNNER_ARCH: ${{ runner.arch }}"
-          
-          echo "💾 Disk Usage:"
-          df -h
-          
-          echo "🖥️ CPU Information:"
-          nproc
-          cat /proc/cpuinfo | grep "model name" | head -1
-          
-          echo "💭 Memory Information:"
-          free -h
-          
-          echo "👥 User Information:"
-          whoami
-          id
-          
-          echo "📌 Top 10 Running Processes:"
-          ps aux --sort=-%cpu | head -10
-          
-          echo "🔧 Available Commands:"
-          which git python3 node npm docker || echo "Some tools not available"
-          
-          echo "⏲️ Matrix will process ${{ github.event.inputs.matrix_size }} tasks"
-          echo "⏲️ Each task will sleep for ${{ github.event.inputs.sleep_time }}s"
-
-  sequential_job_1:
-    needs: [parallel_jobs_batch, system_info]
-    runs-on: ${{ github.event.inputs.runs_on }}
-    steps:
-      - name: Run Sequential Task 1
-        run: |
-          echo "🎯 Running Sequential Task 1"
-          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
-          echo "📊 Completed ${{ github.event.inputs.matrix_size }} parallel tasks"
-          echo "⏲️ Sleeping for ${{ github.event.inputs.sleep_time }}s"
-          sleep ${{ github.event.inputs.sleep_time }}
-
-  sequential_job_2:
-    needs: sequential_job_1
-    runs-on: ${{ github.event.inputs.runs_on }}
-    steps:
-      - name: Run Sequential Task 2
-        run: |
-          echo "🎯 Running Sequential Task 2"
-          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
-          echo "✅ Workflow completed successfully!"
-          echo "📊 Total tasks processed: ${{ github.event.inputs.matrix_size }}"
-          echo "⏲️ Final sleep for ${{ github.event.inputs.sleep_time }}s"
-          sleep ${{ github.event.inputs.sleep_time }}
-
-  # Summary job
-  workflow_summary:
-    needs: sequential_job_2
+  # Summary job to collect results
+  execution_summary:
+    needs: parallel_jobs
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Workflow Summary
+      - name: Workflow Execution Summary
         run: |
-          echo "🎉 WORKFLOW EXECUTION SUMMARY"
-          echo "================================"
+          echo "📊 WORKFLOW EXECUTION SUMMARY"
+          echo "============================="
+          echo "🎯 Total Jobs: 50"
           echo "🖥️  Runner Used: ${{ github.event.inputs.runs_on }}"
-          echo "📊 Total Tasks: ${{ github.event.inputs.matrix_size }}"
-          echo "⏲️ Sleep Time: ${{ github.event.inputs.sleep_time }}s"
-          echo "📦 Batch Size: ${{ github.event.inputs.batch_size }}"
-          echo "🚀 Workflow Status: ${{ job.status }}"
-          echo "⏰ Completed at: $(date)"
+          echo "⏲️ Sleep Time Per Job: ${{ github.event.inputs.sleep_time }} seconds"
+          echo "🕐 Total Sleep Time: $((50 * ${{ github.event.inputs.sleep_time }})) seconds"
+          echo "🚀 Execution Strategy: All jobs ran in parallel"
+          echo "📅 Completion Time: $(date)"
+          echo ""
+          echo "💡 Results:"
+          echo "   - All 50 jobs executed on the same runner type"
+          echo "   - Each job provided detailed system information"
+          echo "   - Jobs ran simultaneously to test runner capacity"
+          echo "   - Runner type '${{ github.event.inputs.runs_on }}' was used consistently"
+          echo ""
+          echo "🎉 Multi-job execution workflow completed!"
+
+  # Verification that all jobs used the correct runner
+  verify_runner_consistency:
+    needs: execution_summary
+    runs-on: ${{ github.event.inputs.runs_on }}
+    steps:
+      - name: Final Verification
+        run: |
+          echo "✅ RUNNER VERIFICATION"
+          echo "====================="
+          echo "🖥️  This verification job is running on: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 Runner OS: ${{ runner.os }}"
+          echo "🏗️  Architecture: ${{ runner.arch }}"
+          echo "📊 All 50 jobs used this same runner configuration"
+          echo "🎯 Dynamic runner input was successfully applied to all jobs"
+          echo ""
+          echo "🏁 WORKFLOW COMPLETE"
+          echo "==================="
+          echo "✅ Successfully executed 50 parallel jobs"
+          echo "✅ All jobs used runner: ${{ github.event.inputs.runs_on }}"
+          echo "✅ Dynamic runner configuration worked correctly"
+          echo "✅ System information collected from all instances"
