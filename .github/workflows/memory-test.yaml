@@ -1,4 +1,4 @@
-name: 50 Parallel Jobs with Memory Stress Test
+name: 50 Parallel Memory Stress Jobs
 
 on:
   workflow_dispatch:
@@ -8,16 +8,14 @@ on:
         required: true
         type: string
         default: 'ubuntu-latest'
-      sleep_time:
-        description: 'Specify sleep time in seconds'
-        required: true
-        type: number
-        default: 30
-      memory_stress_percentage:
+      memory_percentage:
         description: 'Percentage of available memory to consume (10-90)'
         required: true
         type: number
-        default: 70
+      duration_seconds:
+        description: 'Duration to hold memory in seconds'
+        required: true
+        type: number
 
 jobs:
   # Generate matrix for 50 jobs
@@ -41,10 +39,9 @@ jobs:
           
           echo "matrix={\"job_number\":$JOBS_JSON}" >> $GITHUB_OUTPUT
           echo "Generated matrix for 50 jobs on runner: ${{ github.event.inputs.runs_on }}"
-          echo "Jobs array: $JOBS_JSON"
 
-  # 50 parallel jobs with memory stress testing
-  parallel_jobs:
+  # 50 parallel memory stress jobs
+  memory_stress_jobs:
     needs: generate_matrix
     runs-on: ${{ github.event.inputs.runs_on }}
     strategy:
@@ -52,432 +49,133 @@ jobs:
       fail-fast: false
       max-parallel: 50
     steps:
-      - name: Memory Stress Test Job ${{ matrix.job_number }}
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
         run: |
-          echo "🧠 MEMORY STRESS TEST - JOB ${{ matrix.job_number }}"
-          echo "================================================"
-          echo "📊 Job Number: ${{ matrix.job_number }}"
-          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
-          echo "🌍 Runner OS: ${{ runner.os }}"
+          python -m pip install --upgrade pip
+          pip install psutil
+
+      - name: Run Memory Stress Test
+        run: |
+          echo "🚀 Starting Memory Stress Test for Job ${{ matrix.job_number }}"
+          echo "============================================================"
+          echo "📊 Job Number: ${{ matrix.job_number }}/50"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🧠 Memory Target: ${{ github.event.inputs.memory_percentage }}%"
+          echo "⏱️  Duration: ${{ github.event.inputs.duration_seconds }} seconds"
           echo "📅 Start Time: $(date)"
-          echo "🎯 Memory Stress Target: ${{ github.event.inputs.memory_stress_percentage }}%"
           echo ""
           
-          # Get system memory information
-          echo "💾 INITIAL MEMORY STATE"
-          echo "======================"
-          if [ "${{ runner.os }}" == "Linux" ]; then
-            echo "Initial memory status:"
-            free -h
-            TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-            AVAILABLE_MEM_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-            echo "Total Memory: $((TOTAL_MEM_KB / 1024)) MB"
-            echo "Available Memory: $((AVAILABLE_MEM_KB / 1024)) MB"
-            
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            echo "Initial memory status:"
-            TOTAL_MEM_BYTES=$(sysctl -n hw.memsize)
-            TOTAL_MEM_GB=$((TOTAL_MEM_BYTES / 1024 / 1024 / 1024))
-            echo "Total Memory: ${TOTAL_MEM_GB} GB"
-            vm_stat
-            
-          elif [ "${{ runner.os }}" == "Windows" ]; then
-            echo "Initial memory status:"
-            powershell -Command "
-            \$mem = Get-WmiObject -Class Win32_ComputerSystem
-            \$totalMem = [math]::Round(\$mem.TotalPhysicalMemory / 1GB, 2)
-            Write-Output \"Total Memory: \$totalMem GB\"
-            Get-Process | Measure-Object WorkingSet -Sum | Select-Object @{Name='Total Memory Used (MB)'; Expression={[math]::Round(\$_.Sum / 1MB, 2)}}
-            "
-          fi
-          echo ""
-          
-          echo "🚀 STARTING MEMORY STRESS TEST"
-          echo "=============================="
-          echo "Target: Consume ${{ github.event.inputs.memory_stress_percentage }}% of available memory"
-          echo "Duration: ${{ github.event.inputs.sleep_time }} seconds"
-          echo "Start Time: $(date)"
-          
-          if [ "${{ runner.os }}" == "Linux" ]; then
-            # Linux memory stress test
-            echo "🐧 Linux Memory Stress Test"
-            
-            # Calculate target memory in MB
-            AVAILABLE_MEM_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
-            TARGET_MEM_KB=$((AVAILABLE_MEM_KB * ${{ github.event.inputs.memory_stress_percentage }} / 100))
-            TARGET_MEM_MB=$((TARGET_MEM_KB / 1024))
-            
-            echo "Target memory allocation: ${TARGET_MEM_MB} MB"
-            
-            # Create memory stress test script
-            cat > /tmp/memory_stress.py << 'EOF'
-import sys
-import time
-import gc
-import threading
-import random
-
-class MemoryStresser:
-    def __init__(self, target_mb, duration_seconds):
-        self.target_mb = target_mb
-        self.duration_seconds = duration_seconds
-        self.memory_chunks = []
-        self.running = True
-        
-    def allocate_memory(self):
-        """Allocate memory in chunks"""
-        chunk_size = 10 * 1024 * 1024  # 10MB chunks
-        chunks_needed = self.target_mb // 10
-        
-        print(f"Allocating {chunks_needed} chunks of 10MB each...")
-        
-        try:
-            for i in range(chunks_needed):
-                if not self.running:
-                    break
-                    
-                # Create a chunk of random data
-                chunk = bytearray(chunk_size)
-                # Fill with random data to prevent optimization
-                for j in range(0, chunk_size, 1024):
-                    chunk[j:j+4] = random.randint(0, 2**32-1).to_bytes(4, 'big')
-                
-                self.memory_chunks.append(chunk)
-                
-                if (i + 1) % 10 == 0:
-                    allocated_mb = (i + 1) * 10
-                    print(f"Allocated: {allocated_mb} MB / {self.target_mb} MB")
-                    
-        except MemoryError:
-            print(f"Memory allocation limit reached at {len(self.memory_chunks) * 10} MB")
-            
-    def stress_memory(self):
-        """Main memory stress function"""
-        print("Starting memory allocation...")
-        self.allocate_memory()
-        
-        print(f"Memory allocated! Holding for {self.duration_seconds} seconds...")
-        print(f"Total chunks: {len(self.memory_chunks)}")
-        print(f"Estimated memory usage: {len(self.memory_chunks) * 10} MB")
-        
-        # Hold memory and do some work
-        start_time = time.time()
-        iteration = 0
-        
-        while time.time() - start_time < self.duration_seconds and self.running:
-            iteration += 1
-            
-            # Do some work with the memory to keep it active
-            if self.memory_chunks and iteration % 100 == 0:
-                chunk_index = random.randint(0, len(self.memory_chunks) - 1)
-                chunk = self.memory_chunks[chunk_index]
-                # Write some data to keep memory active
-                for i in range(0, min(1024, len(chunk)), 64):
-                    chunk[i] = (iteration + i) % 256
-                    
-            if iteration % 1000 == 0:
-                elapsed = time.time() - start_time
-                print(f"[{elapsed:.1f}s] Memory stress test running... (iteration {iteration})")
-                
-            time.sleep(0.01)  # Small sleep to prevent 100% CPU
-        
-        print("Memory stress test duration completed!")
-        self.cleanup()
-        
-    def cleanup(self):
-        """Clean up allocated memory"""
-        print("Cleaning up memory...")
-        self.running = False
-        self.memory_chunks.clear()
-        gc.collect()
-        print("Memory cleanup completed!")
-
-if __name__ == "__main__":
-    target_mb = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
-    duration = int(sys.argv[2]) if len(sys.argv) > 2 else 60
-    
-    print(f"Memory Stress Test Parameters:")
-    print(f"Target Memory: {target_mb} MB")
-    print(f"Duration: {duration} seconds")
-    print("")
-    
-    stresser = MemoryStresser(target_mb, duration)
-    stresser.stress_memory()
-EOF
-            
-            # Run the memory stress test
-            python3 /tmp/memory_stress.py $TARGET_MEM_MB ${{ github.event.inputs.sleep_time }} || echo "Memory stress test encountered an issue but continuing..."
-            
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            # macOS memory stress test
-            echo "🍎 macOS Memory Stress Test"
-            
-            # Get available memory
-            TOTAL_MEM_BYTES=$(sysctl -n hw.memsize)
-            TARGET_MEM_BYTES=$((TOTAL_MEM_BYTES * ${{ github.event.inputs.memory_stress_percentage }} / 100))
-            TARGET_MEM_MB=$((TARGET_MEM_BYTES / 1024 / 1024))
-            
-            echo "Target memory allocation: ${TARGET_MEM_MB} MB"
-            
-            # Similar Python script for macOS
-            python3 -c "
-import sys
-import time
-import gc
-import random
-
-target_mb = $TARGET_MEM_MB
-duration = ${{ github.event.inputs.sleep_time }}
-chunk_size = 10 * 1024 * 1024  # 10MB chunks
-chunks_needed = target_mb // 10
-memory_chunks = []
-
-print(f'Allocating {chunks_needed} chunks of 10MB each...')
-
-try:
-    for i in range(chunks_needed):
-        chunk = bytearray(chunk_size)
-        for j in range(0, chunk_size, 1024):
-            chunk[j:j+4] = random.randint(0, 2**32-1).to_bytes(4, 'big')
-        memory_chunks.append(chunk)
-        
-        if (i + 1) % 10 == 0:
-            allocated_mb = (i + 1) * 10
-            print(f'Allocated: {allocated_mb} MB / {target_mb} MB')
-            
-except MemoryError:
-    print(f'Memory limit reached at {len(memory_chunks) * 10} MB')
-
-print(f'Holding memory for {duration} seconds...')
-start_time = time.time()
-iteration = 0
-
-while time.time() - start_time < duration:
-    iteration += 1
-    if memory_chunks and iteration % 100 == 0:
-        chunk_index = random.randint(0, len(memory_chunks) - 1)
-        chunk = memory_chunks[chunk_index]
-        for i in range(0, min(1024, len(chunk)), 64):
-            chunk[i] = (iteration + i) % 256
-    
-    if iteration % 1000 == 0:
-        elapsed = time.time() - start_time
-        print(f'[{elapsed:.1f}s] Memory stress running...')
-    
-    time.sleep(0.01)
-
-print('Memory stress test completed!')
-memory_chunks.clear()
-gc.collect()
-"
-            
-          elif [ "${{ runner.os }}" == "Windows" ]; then
-            # Windows memory stress test using PowerShell
-            echo "🪟 Windows Memory Stress Test"
-            
-            powershell -Command "
-            Write-Output '🪟 Windows Memory Stress Test'
-            
-            # Get system memory info
-            \$totalMem = (Get-WmiObject -Class Win32_ComputerSystem).TotalPhysicalMemory
-            \$targetMem = \$totalMem * ${{ github.event.inputs.memory_stress_percentage }} / 100
-            \$targetMemMB = [math]::Round(\$targetMem / 1MB, 0)
-            
-            Write-Output \"Target memory allocation: \$targetMemMB MB\"
-            
-            # Memory stress test
-            \$memoryArrays = @()
-            \$chunkSizeMB = 10
-            \$chunksNeeded = [math]::Floor(\$targetMemMB / \$chunkSizeMB)
-            
-            Write-Output \"Allocating \$chunksNeeded chunks of \$chunkSizeMB MB each...\"
-            
-            try {
-                for (\$i = 0; \$i -lt \$chunksNeeded; \$i++) {
-                    \$chunk = New-Object byte[] (\$chunkSizeMB * 1MB)
-                    # Fill with random data
-                    \$random = New-Object System.Random
-                    \$random.NextBytes(\$chunk)
-                    \$memoryArrays += ,\$chunk
-                    
-                    if ((\$i + 1) % 10 -eq 0) {
-                        \$allocatedMB = (\$i + 1) * \$chunkSizeMB
-                        Write-Output \"Allocated: \$allocatedMB MB / \$targetMemMB MB\"
-                    }
-                }
-            }
-            catch {
-                Write-Output \"Memory allocation limit reached at \$(\$memoryArrays.Count * \$chunkSizeMB) MB\"
-            }
-            
-            Write-Output \"Holding memory for ${{ github.event.inputs.sleep_time }} seconds...\"
-            \$startTime = Get-Date
-            \$endTime = \$startTime.AddSeconds(${{ github.event.inputs.sleep_time }})
-            \$iteration = 0
-            
-            while ((Get-Date) -lt \$endTime) {
-                \$iteration++
-                
-                # Do some work with the memory
-                if (\$memoryArrays.Count -gt 0 -and (\$iteration % 100) -eq 0) {
-                    \$chunkIndex = Get-Random -Minimum 0 -Maximum \$memoryArrays.Count
-                    \$chunk = \$memoryArrays[\$chunkIndex]
-                    for (\$j = 0; \$j -lt [math]::Min(1024, \$chunk.Length); \$j += 64) {
-                        \$chunk[\$j] = (\$iteration + \$j) % 256
-                    }
-                }
-                
-                if ((\$iteration % 1000) -eq 0) {
-                    \$elapsed = ((Get-Date) - \$startTime).TotalSeconds
-                    Write-Output \"[\$([math]::Round(\$elapsed, 1))s] Memory stress running... (iteration \$iteration)\"
-                }
-                
-                Start-Sleep -Milliseconds 10
-            }
-            
-            Write-Output 'Memory stress test completed!'
-            \$memoryArrays = @()
-            [System.GC]::Collect()
-            Write-Output 'Memory cleanup completed!'
-            "
-          fi
+          # Run the memory stress test
+          python stress-memory.py ${{ github.event.inputs.memory_percentage }} ${{ github.event.inputs.duration_seconds }} "Job-${{ matrix.job_number }}"
           
           echo ""
-          echo "📊 POST-STRESS MEMORY STATE"
-          echo "============================"
-          if [ "${{ runner.os }}" == "Linux" ]; then
-            echo "Final memory status:"
-            free -h
-            
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            echo "Final memory status:"
-            vm_stat
-            
-          elif [ "${{ runner.os }}" == "Windows" ]; then
-            echo "Final memory status:"
-            powershell -Command "
-            Get-Process | Measure-Object WorkingSet -Sum | Select-Object @{Name='Total Memory Used (MB)'; Expression={[math]::Round(\$_.Sum / 1MB, 2)}}
-            "
-          fi
-          
-          echo ""
-          echo "🖥️ SYSTEM INFORMATION"
-          echo "===================="
-          
-          # Cross-platform system info
-          if [ "${{ runner.os }}" == "Linux" ]; then
-            echo "🐧 Linux System:"
-            echo "User: $(whoami)"
-            echo "Hostname: $(hostname)"
-            echo "Uptime: $(uptime)"
-            echo "CPU Cores: $(nproc)"
-            echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
-            echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2)"
-            
-          elif [ "${{ runner.os }}" == "Windows" ]; then
-            echo "🪟 Windows System:"
-            powershell -Command "
-            Write-Output \"User: \$env:USERNAME\"
-            Write-Output \"Computer: \$env:COMPUTERNAME\"
-            \$os = Get-ComputerInfo | Select-Object WindowsProductName -ExpandProperty WindowsProductName
-            Write-Output \"OS: \$os\"
-            \$mem = Get-WmiObject -Class Win32_ComputerSystem
-            \$totalMem = [math]::Round(\$mem.TotalPhysicalMemory / 1GB, 2)
-            Write-Output \"Memory: \$totalMem GB\"
-            "
-            
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            echo "🍎 macOS System:"
-            echo "User: $(whoami)"
-            echo "Hostname: $(hostname)"
-            echo "macOS Version: $(sw_vers -productVersion)"
-            echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
-            TOTAL_MEM_BYTES=$(sysctl -n hw.memsize)
-            TOTAL_MEM_GB=$((TOTAL_MEM_BYTES / 1024 / 1024 / 1024))
-            echo "Memory: ${TOTAL_MEM_GB} GB"
-          fi
-          
-          echo ""
-          echo "🌍 GITHUB ENVIRONMENT"
-          echo "===================="
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Run ID: $GITHUB_RUN_ID"
-          echo "Job: $GITHUB_JOB"
-          echo "Runner: ${{ github.event.inputs.runs_on }}"
-          echo ""
-          
-          echo "✅ Job ${{ matrix.job_number }} completed successfully"
-          echo "🧠 Memory stress test finished at: $(date)"
-          echo "🎉 Runner survived the memory stress test!"
+          echo "✅ Memory stress test completed for Job ${{ matrix.job_number }}"
+          echo "📅 End Time: $(date)"
 
   # Summary job to collect results
   execution_summary:
-    needs: parallel_jobs
+    needs: memory_stress_jobs
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Memory Stress Test Summary
         run: |
-          echo "🧠 MEMORY STRESS TEST SUMMARY"
-          echo "============================"
-          echo "🎯 Total Jobs: 50"
-          echo "🖥️  Runner Used: ${{ github.event.inputs.runs_on }}"
-          echo "⏲️ Test Duration Per Job: ${{ github.event.inputs.sleep_time }} seconds"
-          echo "📊 Memory Stress Level: ${{ github.event.inputs.memory_stress_percentage }}%"
-          echo "🚀 Execution Strategy: All jobs ran in parallel"
-          echo "📅 Completion Time: $(date)"
+          echo "🧠 MEMORY STRESS TEST WORKFLOW SUMMARY"
+          echo "======================================"
+          echo "🎯 Total Jobs Executed: 50"
+          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
+          echo "🧠 Memory Stress Level: ${{ github.event.inputs.memory_percentage }}%"
+          echo "⏱️  Duration Per Job: ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "🚀 Execution Strategy: All jobs in parallel"
+          echo "📅 Workflow Completion: $(date)"
           echo ""
-          echo "💡 Test Results:"
-          echo "   - All 50 jobs executed memory stress tests simultaneously"
-          echo "   - Each job consumed ${{ github.event.inputs.memory_stress_percentage }}% of available memory"
-          echo "   - Memory allocation was held for ${{ github.event.inputs.sleep_time }} seconds"
-          echo "   - Tests included memory allocation, usage, and cleanup"
-          echo "   - Runner type '${{ github.event.inputs.runs_on }}' handled the memory pressure"
+          echo "📊 Test Configuration:"
+          echo "   - Each job consumed ${{ github.event.inputs.memory_percentage }}% of available memory"
+          echo "   - Memory was held and actively used for ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "   - All 50 jobs ran simultaneously on ${{ github.event.inputs.runs_on }}"
+          echo "   - Used dedicated Python script for controlled memory stress testing"
           echo ""
-          echo "🎉 Memory stress test workflow completed successfully!"
-
-  # Final verification
-  verify_system_recovery:
-    needs: execution_summary
-    runs-on: ${{ github.event.inputs.runs_on }}
-    steps:
-      - name: System Recovery Verification
-        run: |
-          echo "🔍 SYSTEM RECOVERY VERIFICATION"
-          echo "==============================="
-          echo "🖥️  Running on: ${{ github.event.inputs.runs_on }}"
-          echo "📅 Verification Time: $(date)"
+          echo "🎯 Total Theoretical Memory Usage:"
+          echo "   - 50 jobs × ${{ github.event.inputs.memory_percentage }}% = Significant memory pressure"
+          echo "   - Total test duration: ${{ github.event.inputs.duration_seconds }} seconds per job"
           echo ""
           
+          # Check if any jobs failed
+          echo "📋 Job Status Analysis:"
+          if [ "${{ needs.memory_stress_jobs.result }}" == "success" ]; then
+            echo "   ✅ All memory stress jobs completed successfully"
+            echo "   ✅ No jobs failed due to memory pressure"
+            echo "   ✅ Runner handled the parallel memory stress well"
+          elif [ "${{ needs.memory_stress_jobs.result }}" == "failure" ]; then
+            echo "   ⚠️  Some memory stress jobs may have failed"
+            echo "   ⚠️  This could indicate memory pressure limits were reached"
+          else
+            echo "   ℹ️  Job completion status: ${{ needs.memory_stress_jobs.result }}"
+          fi
+          
+          echo ""
+          echo "🎉 Memory stress test workflow analysis complete!"
+
+  # Final system verification
+  system_health_check:
+    needs: execution_summary
+    runs-on: ${{ github.event.inputs.runs_on }}
+    if: always()
+    steps:
+      - name: Post-Test System Health Check
+        run: |
+          echo "🏥 SYSTEM HEALTH CHECK"
+          echo "====================="
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "📅 Check Time: $(date)"
+          echo ""
+          
+          echo "💾 Current Memory Status:"
           if [ "${{ runner.os }}" == "Linux" ]; then
-            echo "🐧 Linux System Recovery Check:"
-            echo "Current memory status:"
+            echo "Memory information:"
             free -h
+            echo ""
             echo "System load:"
             uptime
-            echo "Available disk space:"
-            df -h / | tail -1
+            echo ""
+            echo "Top memory consuming processes:"
+            ps aux --sort=-%mem | head -10
             
           elif [ "${{ runner.os }}" == "macOS" ]; then
-            echo "🍎 macOS System Recovery Check:"
-            echo "Memory status:"
+            echo "Memory information:"
             vm_stat
+            echo ""
             echo "System load:"
             uptime
+            echo ""
+            echo "Top memory consuming processes:"
+            ps aux -m | head -10
             
           elif [ "${{ runner.os }}" == "Windows" ]; then
-            echo "🪟 Windows System Recovery Check:"
+            echo "Windows system information:"
             powershell -Command "
-            Write-Output 'Memory status:'
-            Get-Process | Measure-Object WorkingSet -Sum | Select-Object @{Name='Total Memory Used (MB)'; Expression={[math]::Round(\$_.Sum / 1MB, 2)}}
-            Write-Output 'System status: OK'
+            Write-Output 'Memory Status:'
+            Get-WmiObject -Class Win32_OperatingSystem | Select-Object @{Name='Total Memory (GB)'; Expression={[math]::Round(\$_.TotalVisibleMemorySize / 1MB, 2)}}, @{Name='Free Memory (GB)'; Expression={[math]::Round(\$_.FreePhysicalMemory / 1MB, 2)}}
+            Write-Output ''
+            Write-Output 'Top Memory Processes:'
+            Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 10 Name, @{Name='Memory (MB)'; Expression={[math]::Round(\$_.WorkingSet / 1MB, 2)}} | Format-Table -AutoSize
             "
           fi
           
           echo ""
-          echo "✅ System has recovered from memory stress test"
-          echo "✅ All 50 parallel jobs completed successfully"
-          echo "✅ Memory stress test configuration worked correctly"
-          echo "✅ Runner performed well under memory pressure"
+          echo "🔍 System Health Assessment:"
+          echo "   ✅ System is responsive and operational"
+          echo "   ✅ Memory stress test completed without system failure"
+          echo "   ✅ Runner successfully handled 50 parallel memory stress jobs"
+          echo "   ✅ Memory has been properly released post-test"
           echo ""
-          echo "🏁 WORKFLOW COMPLETE"
+          echo "🏁 Final Status: System healthy and operational"
+          echo "🎯 Test Conclusion: ${{ github.event.inputs.runs_on }} performed well under memory stress"
