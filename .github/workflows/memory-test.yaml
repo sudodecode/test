@@ -1,4 +1,4 @@
-name: 50 Parallel Memory Stress Jobs
+name: Memory Stress Jobs
 
 on:
   workflow_dispatch:
