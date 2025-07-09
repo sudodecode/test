@@ -1,4 +1,4 @@
-name: CPU Stress Test
+name: CPU Stress Test - 40 Parallel Jobs
 
 on:
   workflow_dispatch:
@@ -15,15 +15,21 @@ on:
 jobs:
   stress:
     runs-on: ${{ github.event.inputs.runner }}
+    strategy:
+      matrix:
+        job_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
     - name: Disk Info
+      if: matrix.job_id == 1
       run: df -h
 
     - name: CPU and Memory Info
+      if: matrix.job_id == 1
       run: |
         lscpu
         free -m
-    - name: CPU and Memory Info
+    - name: Detailed CPU and Memory Info
+      if: matrix.job_id == 1
       run: |
         echo "==== CPU Info ===="
         echo "CPU Model:"
@@ -51,10 +57,11 @@ jobs:
         echo "CPU_MODEL=$(lscpu | grep 'Model name' | cut -f 2 -d ":")" >> $GITHUB_ENV
     - name: Run CPU stress test
       run: |
-        echo "# CPU Stress Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "# CPU Stress Test Results - Job ${{ matrix.job_id }}" >> $GITHUB_STEP_SUMMARY
         echo "## Test Configuration" >> $GITHUB_STEP_SUMMARY
         echo "- Duration: ${{ github.event.inputs.duration }} seconds" >> $GITHUB_STEP_SUMMARY
         echo "- CPU Cores: ${{ env.CPU_CORES }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Job ID: ${{ matrix.job_id }}" >> $GITHUB_STEP_SUMMARY
         echo "## Stress Test Output" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         stress-ng --cpu ${{ env.CPU_CORES }} --timeout ${{ github.event.inputs.duration }}s --metrics-brief >> $GITHUB_STEP_SUMMARY
@@ -65,3 +72,4 @@ jobs:
         echo "- CPU Model: ${{ env.CPU_MODEL }}" >> $GITHUB_STEP_SUMMARY
         echo "- Number of CPU cores: ${{ env.CPU_CORES }}" >> $GITHUB_STEP_SUMMARY
         echo "- Runner: ${{ github.event.inputs.runner }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Job ID: ${{ matrix.job_id }}" >> $GITHUB_STEP_SUMMARY
