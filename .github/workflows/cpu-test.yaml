@@ -76,29 +76,124 @@ jobs:
           echo ""
           
           # Platform-specific system info
-          if [ "${{ runner.os }}" == "Linux" ]; then
-            echo "🐧 Linux System Details:"
-            echo "CPU Info: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2 | xargs)"
-            echo "CPU Cores: $(nproc)"
-            echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
-            echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
-            
-          elif [ "${{ runner.os }}" == "macOS" ]; then
-            echo "🍎 macOS System Details:"
-            echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
-            echo "CPU Cores: $(sysctl -n hw.ncpu)"
-            echo "Memory: $(sysctl -n hw.memsize | awk '{print $1/1024/1024/1024 " GB"}')"
-            echo "Load Average: $(uptime | awk -F'load averages:' '{print $2}')"
-            
-          elif [ "${{ runner.os }}" == "Windows" ]; then
-            echo "🪟 Windows System Details:"
-            powershell -Command "
-            Write-Output 'CPU: ' -NoNewline; Get-WmiObject -Class Win32_Processor | Select-Object -First 1 Name | ForEach-Object { \$_.Name }
-            Write-Output 'CPU Cores: ' -NoNewline; Get-WmiObject -Class Win32_ComputerSystem | Select-Object NumberOfLogicalProcessors | ForEach-Object { \$_.NumberOfLogicalProcessors }
-            Write-Output 'Memory: ' -NoNewline; Get-WmiObject -Class Win32_ComputerSystem | ForEach-Object { [math]::Round(\$_.TotalPhysicalMemory / 1GB, 2) }; Write-Output ' GB'
-            "
+          echo "🐧 Linux System Details:"
+          echo "=================================================="
+          
+          # Basic CPU Information
+          echo "🔧 CPU Basic Information:"
+          echo "CPU Model: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Vendor: $(cat /proc/cpuinfo | grep 'vendor_id' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Family: $(cat /proc/cpuinfo | grep 'cpu family' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Model ID: $(cat /proc/cpuinfo | grep '^model[[:space:]]*:' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Stepping: $(cat /proc/cpuinfo | grep 'stepping' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Microcode: $(cat /proc/cpuinfo | grep 'microcode' | head -1 | cut -d':' -f2 | xargs)"
+          echo ""
+          
+          # CPU Cores and Threading
+          echo "🧮 CPU Cores & Threading:"
+          echo "Physical CPUs: $(cat /proc/cpuinfo | grep 'physical id' | sort -u | wc -l)"
+          echo "CPU Cores: $(nproc)"
+          echo "Logical CPUs: $(cat /proc/cpuinfo | grep 'processor' | wc -l)"
+          echo "Cores per Socket: $(cat /proc/cpuinfo | grep 'cpu cores' | head -1 | cut -d':' -f2 | xargs)"
+          echo "Threads per Core: $(cat /proc/cpuinfo | grep 'siblings' | head -1 | cut -d':' -f2 | xargs)"
+          echo ""
+          
+          # CPU Frequency Information
+          echo "⚡ CPU Frequency:"
+          echo "Current CPU MHz: $(cat /proc/cpuinfo | grep 'cpu MHz' | head -1 | cut -d':' -f2 | xargs)"
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq ]; then
+            echo "Max Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq) / 1000)) MHz"
+          fi
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq ]; then
+            echo "Min Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq) / 1000)) MHz"
           fi
           echo ""
+          
+          # Cache Information
+          echo "💾 CPU Cache Information:"
+          echo "L1d Cache: $(cat /proc/cpuinfo | grep 'cache size' | head -1 | cut -d':' -f2 | xargs)"
+          if [ -d /sys/devices/system/cpu/cpu0/cache ]; then
+            for cache in /sys/devices/system/cpu/cpu0/cache/index*; do
+              if [ -d "$cache" ]; then
+                level=$(cat "$cache/level" 2>/dev/null || echo "Unknown")
+                type=$(cat "$cache/type" 2>/dev/null || echo "Unknown")
+                size=$(cat "$cache/size" 2>/dev/null || echo "Unknown")
+                echo "L${level} ${type} Cache: ${size}"
+              fi
+            done
+          fi
+          echo ""
+          
+          # CPU Features and Instruction Sets
+          echo "🚀 CPU Features & Instruction Sets:"
+          echo "=================================================="
+          CPU_FLAGS=$(cat /proc/cpuinfo | grep 'flags' | head -1 | cut -d':' -f2)
+          
+          # Check for major instruction sets
+          echo "📋 Major Instruction Set Extensions:"
+          for flag in mmx sse sse2 sse3 ssse3 sse4_1 sse4_2 sse4a avx avx2 avx512f avx512dq avx512cd avx512bw avx512vl fma fma4 aes pclmulqdq sha_ni; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for virtualization features
+          echo "🔧 Virtualization Features:"
+          for flag in vmx svm; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag (Hardware Virtualization)"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for security features
+          echo "🔒 Security Features:"
+          for flag in nx smep smap ibrs ibpb stibp ssbd; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for other notable features
+          echo "🎯 Other Notable Features:"
+          for flag in rdrand rdseed f16c bmi1 bmi2 adx movbe popcnt lzcnt; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # All CPU flags (condensed)
+          echo "📜 All CPU Flags:"
+          echo "$CPU_FLAGS" | tr ' ' '\n' | sort | tr '\n' ' '
+          echo ""
+          echo ""
+          
+          # Memory Information
+          echo "🧠 Memory Information:"
+          echo "Total Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+          echo "Available Memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
+          echo "Used Memory: $(free -h | grep '^Mem:' | awk '{print $3}')"
+          echo "Memory Usage: $(free | grep '^Mem:' | awk '{printf "%.1f%%", ($3/$2) * 100}')"
+          echo ""
+          
+          # Load Average
+          echo "📈 System Load:"
+          echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+          echo "Uptime: $(uptime -p)"
+          echo ""
+          
+          
 
       - name: Run CPU Stress Test
         run: |
