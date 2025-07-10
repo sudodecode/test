@@ -1,0 +1,240 @@
+name: Linux CPU Information
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: 'Runner type'
+        required: true
+        default: 'ubuntu-latest'
+        type: choice
+        options:
+          - ubuntu-latest
+          - tenki-standard-vm-small-2c-4g
+          - tenki-standard-autoscale
+
+      job_count:
+        description: 'Number of parallel jobs'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '5'
+          - '10'
+          - '25'
+          - '50'
+
+jobs:
+  cpu-info:
+    runs-on: ${{ github.event.inputs.runs_on }}
+    strategy:
+      matrix:
+        job_number: ${{ fromJson(format('[{0}]', join(range(1, fromJson(github.event.inputs.job_count) + 1), ','))) }}
+    
+    steps:
+      - name: Linux CPU Information
+        run: |
+          echo "🐧 LINUX CPU INFORMATION - JOB ${{ matrix.job_number }}"
+          echo "=================================================="
+          echo "📊 Job Number: ${{ matrix.job_number }}/${{ github.event.inputs.job_count }}"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 OS: ${{ runner.os }}"
+          echo "🏗️  Architecture: ${{ runner.arch }}"
+          echo "📅 Start Time: $(date)"
+          echo ""
+          
+          # Basic CPU Information
+          echo "🔧 CPU Basic Information:"
+          echo "=================================================="
+          echo "CPU Model: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Vendor: $(cat /proc/cpuinfo | grep 'vendor_id' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Family: $(cat /proc/cpuinfo | grep 'cpu family' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Model ID: $(cat /proc/cpuinfo | grep '^model[[:space:]]*:' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Stepping: $(cat /proc/cpuinfo | grep 'stepping' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Microcode: $(cat /proc/cpuinfo | grep 'microcode' | head -1 | cut -d':' -f2 | xargs)"
+          echo ""
+          
+          # CPU Cores and Threading
+          echo "🧮 CPU Cores & Threading:"
+          echo "=================================================="
+          echo "Physical CPUs: $(cat /proc/cpuinfo | grep 'physical id' | sort -u | wc -l)"
+          echo "CPU Cores: $(nproc)"
+          echo "Logical CPUs: $(cat /proc/cpuinfo | grep 'processor' | wc -l)"
+          echo "Cores per Socket: $(cat /proc/cpuinfo | grep 'cpu cores' | head -1 | cut -d':' -f2 | xargs)"
+          echo "Threads per Core: $(lscpu | grep 'Thread(s) per core' | awk '{print $4}' || echo 'N/A')"
+          echo ""
+          
+          # CPU Frequency Information
+          echo "⚡ CPU Frequency:"
+          echo "=================================================="
+          echo "Current CPU MHz: $(cat /proc/cpuinfo | grep 'cpu MHz' | head -1 | cut -d':' -f2 | xargs)"
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq ]; then
+            echo "Max Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq) / 1000)) MHz"
+          fi
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq ]; then
+            echo "Min Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq) / 1000)) MHz"
+          fi
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ]; then
+            echo "CPU Governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)"
+          fi
+          echo ""
+          
+          # Cache Information
+          echo "💾 CPU Cache Information:"
+          echo "=================================================="
+          echo "L1d Cache: $(lscpu | grep 'L1d cache' | awk '{print $3}' || echo 'N/A')"
+          echo "L1i Cache: $(lscpu | grep 'L1i cache' | awk '{print $3}' || echo 'N/A')"
+          echo "L2 Cache: $(lscpu | grep 'L2 cache' | awk '{print $3}' || echo 'N/A')"
+          echo "L3 Cache: $(lscpu | grep 'L3 cache' | awk '{print $3}' || echo 'N/A')"
+          
+          # Alternative cache info from /proc/cpuinfo
+          if [ -z "$(lscpu | grep 'L1d cache')" ]; then
+            echo "Cache Size: $(cat /proc/cpuinfo | grep 'cache size' | head -1 | cut -d':' -f2 | xargs)"
+          fi
+          
+          # Cache info from /sys if available
+          if [ -d /sys/devices/system/cpu/cpu0/cache ]; then
+            echo ""
+            echo "📋 Detailed Cache Information:"
+            for cache in /sys/devices/system/cpu/cpu0/cache/index*; do
+              if [ -d "$cache" ]; then
+                level=$(cat "$cache/level" 2>/dev/null || echo "Unknown")
+                type=$(cat "$cache/type" 2>/dev/null || echo "Unknown")
+                size=$(cat "$cache/size" 2>/dev/null || echo "Unknown")
+                ways=$(cat "$cache/ways_of_associativity" 2>/dev/null || echo "Unknown")
+                line_size=$(cat "$cache/coherency_line_size" 2>/dev/null || echo "Unknown")
+                echo "  L${level} ${type}: ${size} (${ways}-way, ${line_size}B line size)"
+              fi
+            done
+          fi
+          echo ""
+          
+          # CPU Features and Instruction Sets
+          echo "🚀 CPU Features & Instruction Sets:"
+          echo "=================================================="
+          CPU_FLAGS=$(cat /proc/cpuinfo | grep 'flags' | head -1 | cut -d':' -f2)
+          
+          # Check for major instruction sets
+          echo "📋 SIMD & Vector Instructions:"
+          for flag in mmx sse sse2 sse3 ssse3 sse4_1 sse4_2 sse4a avx avx2 avx512f avx512dq avx512cd avx512bw avx512vl; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for math and crypto instructions
+          echo "🔢 Math & Crypto Instructions:"
+          for flag in fma fma4 aes pclmulqdq sha_ni rdrand rdseed; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for bit manipulation instructions
+          echo "🔧 Bit Manipulation Instructions:"
+          for flag in bmi1 bmi2 adx lzcnt popcnt abm; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for virtualization features
+          echo "🌐 Virtualization Features:"
+          for flag in vmx svm; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag (Hardware Virtualization)"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for security features
+          echo "🔒 Security Features:"
+          for flag in nx smep smap ibrs ibpb stibp ssbd md_clear flush_l1d arch_capabilities; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for memory and performance features
+          echo "🏎️ Memory & Performance Features:"
+          for flag in clflush clflushopt clwb movbe f16c xsave xsaveopt fsgsbase; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # All CPU flags (organized)
+          echo "📜 All CPU Flags (Alphabetical):"
+          echo "=================================================="
+          echo "$CPU_FLAGS" | tr ' ' '\n' | sort | tr '\n' ' ' | fold -w 80
+          echo ""
+          echo ""
+          
+          # Memory Information
+          echo "🧠 Memory Information:"
+          echo "=================================================="
+          echo "Total Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+          echo "Available Memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
+          echo "Used Memory: $(free -h | grep '^Mem:' | awk '{print $3}')"
+          echo "Free Memory: $(free -h | grep '^Mem:' | awk '{print $4}')"
+          echo "Memory Usage: $(free | grep '^Mem:' | awk '{printf "%.1f%%", ($3/$2) * 100}')"
+          echo "Swap Total: $(free -h | grep '^Swap:' | awk '{print $2}')"
+          echo "Swap Used: $(free -h | grep '^Swap:' | awk '{print $3}')"
+          echo ""
+          
+          # Load Average and System Info
+          echo "📈 System Performance:"
+          echo "=================================================="
+          echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+          echo "Uptime: $(uptime -p)"
+          echo "Boot Time: $(uptime -s)"
+          echo ""
+          
+          # Additional Hardware Info
+          echo "🔍 Additional Hardware Info:"
+          echo "=================================================="
+          echo "Kernel Version: $(uname -r)"
+          echo "Hostname: $(hostname)"
+          echo "Architecture: $(uname -m)"
+          echo "Processor Type: $(uname -p)"
+          echo "Hardware Platform: $(uname -i)"
+          echo ""
+          
+          # CPU Temperature (if available)
+          if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
+            echo "🌡️  CPU Temperature: $(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
+          fi
+          
+          # CPU vulnerabilities
+          echo "🛡️  CPU Vulnerabilities:"
+          echo "=================================================="
+          if [ -d /sys/devices/system/cpu/vulnerabilities ]; then
+            for vuln in /sys/devices/system/cpu/vulnerabilities/*; do
+              if [ -f "$vuln" ]; then
+                vuln_name=$(basename "$vuln")
+                vuln_status=$(cat "$vuln")
+                echo "  $vuln_name: $vuln_status"
+              fi
+            done
+          fi
+          echo ""
+          
+          echo "🏁 Analysis Complete - $(date)"
