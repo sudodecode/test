@@ -13,31 +13,15 @@ on:
           - tenki-standard-vm-small-2c-4g
           - tenki-standard-autoscale
 
-      job_count:
-        description: 'Number of parallel jobs'
-        required: false
-        default: '1'
-        type: choice
-        options:
-          - '1'
-          - '5'
-          - '10'
-          - '25'
-          - '50'
-
 jobs:
   cpu-info:
     runs-on: ${{ github.event.inputs.runs_on }}
-    strategy:
-      matrix:
-        job_number: ${{ fromJson(format('[{0}]', join(range(1, fromJson(github.event.inputs.job_count) + 1), ','))) }}
     
     steps:
       - name: Linux CPU Information
         run: |
-          echo "🐧 LINUX CPU INFORMATION - JOB ${{ matrix.job_number }}"
+          echo "🐧 LINUX CPU INFORMATION"
           echo "=================================================="
-          echo "📊 Job Number: ${{ matrix.job_number }}/${{ github.event.inputs.job_count }}"
           echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
           echo "🌍 OS: ${{ runner.os }}"
           echo "🏗️  Architecture: ${{ runner.arch }}"
