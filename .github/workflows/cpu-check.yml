@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Linux CPU Information
         run: |
+          gh
+          gh --version
           echo "🐧 LINUX CPU INFORMATION"
           echo "=================================================="
           echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
