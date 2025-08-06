@@ -12,6 +12,7 @@ on:
           - ubuntu-latest
           - tenki-standard-vm-small-2c-4g
           - tenki-standard-autoscale
+          - tenki-staging-standard-autoscale
           - tenki-staging-ubuntu-22.04-large-4c-16g
 
 jobs:
