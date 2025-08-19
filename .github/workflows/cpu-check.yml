@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runs_on:
-        description: 'Runner type'
+        description: 'Runner type (select from dropdown or enter custom value)'
         required: true
         default: 'ubuntu-latest'
         type: choice
@@ -14,21 +14,37 @@ on:
           - tenki-standard-autoscale
           - tenki-staging-standard-autoscale
           - tenki-staging-ubuntu-22.04-large-4c-16g
+      custom_runner:
+        description: 'Custom runner (leave empty to use dropdown selection)'
+        required: false
+        type: string
+      sleep_seconds:
+        description: 'Sleep duration in seconds before CPU analysis'
+        required: true
+        default: '5'
+        type: string
 
 jobs:
   cpu-info:
-    runs-on: ${{ github.event.inputs.runs_on }}
+    runs-on: ${{ inputs.custom_runner != '' && inputs.custom_runner || inputs.runs_on }}
     
     steps:
+      - name: Sleep Before Analysis
+        run: |
+          echo "⏰ Sleeping for ${{ inputs.sleep_seconds }} seconds before starting CPU analysis..."
+          sleep ${{ inputs.sleep_seconds }}
+          echo "✅ Sleep completed. Starting CPU information gathering..."
+      
       - name: Linux CPU Information
         run: |
           gh
           gh --version
           echo "🐧 LINUX CPU INFORMATION"
           echo "=================================================="
-          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🖥️  Runner: ${{ inputs.custom_runner != '' && inputs.custom_runner || inputs.runs_on }}"
           echo "🌍 OS: ${{ runner.os }}"
           echo "🏗️  Architecture: ${{ runner.arch }}"
+          echo "⏰ Sleep Duration: ${{ inputs.sleep_seconds }} seconds"
           echo "📅 Start Time: $(date)"
           echo ""
           
