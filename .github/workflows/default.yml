@@ -13,11 +13,10 @@ on:
         required: true
         type: number
 
-
 jobs:
   # Generate matrix for 50 jobs
   generate_matrix:
-    runs-on: ubuntu-latest
+    runs-on: tenki-local-ubuntu-22.04-small-1c-4g
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -45,7 +44,7 @@ jobs:
     strategy:
       matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
       fail-fast: false
-      max-parallel: 50  # All 50 can run in parallel
+      max-parallel: 50 # All 50 can run in parallel
     steps:
       - name: Execute Job ${{ matrix.job_number }} on ${{ github.event.inputs.runs_on }}
         run: |
