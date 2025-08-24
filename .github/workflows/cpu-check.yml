@@ -37,12 +37,12 @@ jobs:
       
       - name: Linux CPU Information
         run: |
-          df -h
-          df -T
-          cat /etc/docker/daemon.json
-          cat ~/.cargo/config.toml
-          pwd
-          lsblk
+          df -h || true
+          df -T || true
+          cat /etc/docker/daemon.json 2>/dev/null || true
+          cat ~/.cargo/config.toml 2>/dev/null || true
+          pwd || true
+          lsblk || true
           
           gh
           gh --version
