@@ -22,7 +22,7 @@ on:
 jobs:
   # Generate matrix for 50 jobs
   generate_matrix:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -252,7 +252,7 @@ jobs:
   # Summary job to collect results
   execution_summary:
     needs: cpu_stress_jobs
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     if: always()
     steps:
       - name: CPU Stress Test Summary
