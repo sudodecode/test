@@ -40,7 +40,6 @@ jobs:
           df -h
           df -T
           cat /etc/docker/daemon.json
-          cat ~/.config/docker/daemon.json
           cat ~/.cargo/config.toml
           pwd
           lsblk
