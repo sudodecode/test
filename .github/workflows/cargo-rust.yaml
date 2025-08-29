@@ -44,11 +44,15 @@ jobs:
         cargo new test-cache-proxy --bin
         cd test-cache-proxy
         
-    - name: Add heavy dependencies to Cargo.toml
+    - name: Replace Cargo.toml with heavy dependencies
       working-directory: test-cache-proxy
       run: |
-        cat >> Cargo.toml << 'EOF'
-        
+        cat > Cargo.toml << 'EOF'
+        [package]
+        name = "test-cache-proxy"
+        version = "0.1.0"
+        edition = "2021"
+
         [dependencies]
         tokio = { version = "1.0", features = ["full"] }
         serde = { version = "1.0", features = ["derive"] }
