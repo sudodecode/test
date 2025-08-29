@@ -1,0 +1,228 @@
+# .github/workflows/test-cargo-mirror.yml
+name: Test Cargo Mirror Setup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-cargo-mirror:
+    runs-on: tenki-staging-ubuntu-22.04-medium-2c-8g
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+        
+    - name: Create cargo config directory
+      run: |
+        mkdir -p ~/.cargo
+        
+    - name: Configure cargo mirror
+      run: |
+        cat > ~/.cargo/config.toml << 'EOF'
+        [source.crates-io]
+        replace-with = "tenki-mirror"
+
+        [source.tenki-mirror]
+        registry = "sparse+http://192.168.21.57:7990/{tenant-id}/index/"
+        EOF
+        
+    - name: Display cargo config
+      run: |
+        echo "Current cargo config:"
+        cat ~/.cargo/config.toml
+        
+    - name: Create test project
+      run: |
+        cargo new test-cache-proxy --bin
+        cd test-cache-proxy
+        
+    - name: Add heavy dependencies to Cargo.toml
+      working-directory: test-cache-proxy
+      run: |
+        cat >> Cargo.toml << 'EOF'
+        
+        [dependencies]
+        tokio = { version = "1.0", features = ["full"] }
+        serde = { version = "1.0", features = ["derive"] }
+        serde_json = "1.0"
+        reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+        clap = { version = "4.0", features = ["derive"] }
+        tracing = "0.1"
+        tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+        anyhow = "1.0"
+        thiserror = "1.0"
+        uuid = { version = "1.0", features = ["v4", "serde"] }
+        chrono = { version = "0.4", features = ["serde"] }
+        regex = "1.0"
+        lazy_static = "1.4"
+        rayon = "1.7"
+        dashmap = "5.0"
+        parking_lot = "0.12"
+        crossbeam = "0.8"
+        async-trait = "0.1"
+        futures = "0.3"
+        bytes = "1.0"
+        EOF
+        
+    - name: Update main.rs with sample code
+      working-directory: test-cache-proxy
+      run: |
+        cat > src/main.rs << 'EOF'
+        use anyhow::Result;
+        use chrono::{DateTime, Utc};
+        use clap::Parser;
+        use dashmap::DashMap;
+        use futures::future::join_all;
+        use parking_lot::RwLock;
+        use rayon::prelude::*;
+        use regex::Regex;
+        use reqwest::Client;
+        use serde::{Deserialize, Serialize};
+        use std::sync::Arc;
+        use std::time::Duration;
+        use tokio::time::sleep;
+        use tracing::{info, warn, error};
+        use uuid::Uuid;
+
+        #[derive(Parser, Debug)]
+        #[command(author, version, about, long_about = None)]
+        struct Args {
+            #[arg(short, long, default_value_t = 10)]
+            count: usize,
+            
+            #[arg(short, long)]
+            verbose: bool,
+        }
+
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        struct TestData {
+            id: Uuid,
+            timestamp: DateTime<Utc>,
+            value: f64,
+            description: String,
+        }
+
+        #[tokio::main]
+        async fn main() -> Result<()> {
+            // Initialize tracing
+            tracing_subscriber::fmt::init();
+            
+            let args = Args::parse();
+            
+            info!("Starting cache proxy test with {} items", args.count);
+            
+            // Test various heavy dependencies
+            test_concurrent_operations(args.count).await?;
+            test_regex_operations();
+            test_parallel_computation(args.count);
+            
+            info!("Cache proxy test completed successfully!");
+            Ok(())
+        }
+
+        async fn test_concurrent_operations(count: usize) -> Result<()> {
+            info!("Testing concurrent operations...");
+            
+            let data_store: Arc<DashMap<Uuid, TestData>> = Arc::new(DashMap::new());
+            let counter = Arc::new(RwLock::new(0usize));
+            
+            let tasks: Vec<_> = (0..count).map(|i| {
+                let store = Arc::clone(&data_store);
+                let counter = Arc::clone(&counter);
+                
+                async move {
+                    let test_data = TestData {
+                        id: Uuid::new_v4(),
+                        timestamp: Utc::now(),
+                        value: (i as f64) * 3.14159,
+                        description: format!("Test item number {}", i),
+                    };
+                    
+                    store.insert(test_data.id, test_data.clone());
+                    
+                    // Simulate some async work
+                    sleep(Duration::from_millis(10)).await;
+                    
+                    {
+                        let mut count = counter.write();
+                        *count += 1;
+                    }
+                    
+                    test_data.id
+                }
+            }).collect();
+            
+            let results = join_all(tasks).await;
+            info!("Created {} concurrent items", results.len());
+            
+            Ok(())
+        }
+
+        fn test_regex_operations() {
+            info!("Testing regex operations...");
+            
+            let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+            let test_emails = vec![
+                "test@example.com",
+                "user.name+tag@domain.co.uk", 
+                "invalid.email",
+                "another@test.org",
+            ];
+            
+            for email in test_emails {
+                if email_regex.is_match(email) {
+                    info!("Valid email: {}", email);
+                } else {
+                    warn!("Invalid email: {}", email);
+                }
+            }
+        }
+
+        fn test_parallel_computation(count: usize) {
+            info!("Testing parallel computation...");
+            
+            let numbers: Vec<u64> = (1..=count as u64).collect();
+            
+            let sum: u64 = numbers.par_iter()
+                .map(|&n| {
+                    // Simulate heavy computation
+                    (1..=n).fold(0u64, |acc, x| acc.wrapping_add(x * x))
+                })
+                .sum();
+                
+            info!("Parallel computation result: {}", sum);
+        }
+        EOF
+        
+    - name: Display project structure
+      working-directory: test-cache-proxy
+      run: |
+        echo "Project structure:"
+        find . -type f -name "*.rs" -o -name "*.toml" | head -10
+        echo ""
+        echo "Cargo.toml contents:"
+        cat Cargo.toml
+        
+    - name: Check cargo registry configuration
+      run: |
+        echo "Checking if cargo can read the mirror configuration..."
+        cargo --version
+        
+    - name: Build test project (this will test the cache proxy)
+      working-directory: test-cache-proxy
+      run: |
+        echo "Building project to test cache proxy..."
+        cargo check --verbose
+        
+    - name: Run the test application
+      working-directory: test-cache-proxy  
+      run: |
+        echo "Running the test application..."
+        cargo run -- --count 5 --verbose
