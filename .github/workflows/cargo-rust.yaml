@@ -31,7 +31,7 @@ jobs:
         replace-with = "tenki-mirror"
 
         [source.tenki-mirror]
-        registry = "sparse+http://192.168.21.57:7990/{tenant-id}/index/"
+        registry = "sparse+http://192.168.21.57:7990/aki/index/"
         EOF
         
     - name: Display cargo config
