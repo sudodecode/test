@@ -24,14 +24,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://registry.npmjs.org/
+
+      - name: Configure .npmrc for proxy
+        run: |
+          echo "registry=http://192.168.21.57:7990/aki-npm/npm" > ~/.npmrc
+          echo "strict-ssl=false" >> ~/.npmrc
+          echo "===== .npmrc configured ====="
+          cat ~/.npmrc
 
       - name: Show npm configuration
         run: npm config list
 
       - name: Install random popular npm packages
         run: |
-          cat ~/.npmrc
           echo "Installing test packages..."
           time npm install \
             react \
