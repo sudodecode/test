@@ -31,6 +31,7 @@ jobs:
 
       - name: Install random popular npm packages
         run: |
+          cat ~/.npmrc
           echo "Installing test packages..."
           time npm install \
             react \
