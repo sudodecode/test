@@ -1,0 +1,61 @@
+name: Test NPM Proxy Speed
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Select GitHub runner"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - ubuntu-latest
+          - tenki-standard-autoscale
+          - tenki-standard-large-8c-16g
+
+jobs:
+  npm-proxy-test:
+    runs-on: ${{ github.event.inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Show npm configuration
+        run: npm config list
+
+      - name: Install random popular npm packages
+        run: |
+          echo "Installing test packages..."
+          time npm install \
+            react \
+            express \
+            lodash \
+            axios \
+            chalk \
+            typescript \
+            moment \
+            eslint \
+            vue \
+            next \
+            jest \
+            rimraf \
+            commander \
+            webpack \
+            @babel/core
+
+      - name: Verify install worked
+        run: |
+          echo "Checking installed packages..."
+          ls -lh node_modules | head -n 20
+          npm list --depth=0
+
+      - name: Validate npm proxy
+        run: |
+          echo "Running proxy validation..."
+          npm ping
