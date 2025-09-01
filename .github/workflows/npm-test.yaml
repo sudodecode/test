@@ -12,6 +12,7 @@ on:
           - ubuntu-latest
           - tenki-standard-autoscale
           - tenki-standard-large-8c-16g
+          - tenki-standard-small-2c-2g
 
 jobs:
   npm-proxy-test:
