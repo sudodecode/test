@@ -54,7 +54,20 @@ jobs:
             rimraf \
             commander \
             webpack \
-            @babel/core
+            @babel/core \
+            lodash \
+            chalk \
+            express \
+            vue \
+            webpack\
+            uuid \
+            classnames \
+            chromatic \
+            storybook-addon-apollo-client \
+            react-horizontal-scrolling-menu \
+            top-user-agents \
+            w3counter \
+            lang-list
 
       - name: Verify install worked
         run: |
