@@ -4,10 +4,21 @@ name: Test Cargo Mirror Setup
 on:
 
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "Select GitHub runner"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - ubuntu-latest
+          - tenki-standard-autoscale
+          - tenki-standard-large-8c-16g
+          - tenki-standard-small-2c-4g
 
 jobs:
   test-cargo-mirror:
-    runs-on: tenki-staging-ubuntu-22.04-medium-2c-8g
+    runs-on: ${{ github.event.inputs.runner }}
     
     steps:
     - name: Checkout repository
