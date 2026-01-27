@@ -9,6 +9,8 @@ on:
         default: 'ubuntu-latest'
         type: choice
         options:
+          - tenki-local-large
+          - tenki-local-ubuntu-22.04-small-2c-4g
           - ubuntu-latest
           - tenki-standard-vm-small-2c-4g
           - tenki-standard-autoscale
@@ -29,14 +31,56 @@ on:
 jobs:
   cpu-info:
     runs-on: ${{ inputs.custom_runner != '' && inputs.custom_runner || inputs.runs_on }}
-    
+    permissions:
+      actions: read
+
     steps:
+      - name: Display Queue Time
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "⏱️ QUEUE TIME ANALYSIS"
+          echo "=================================================="
+
+          # Fetch current job info
+          JOBS_JSON=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+
+          # Find this job by name
+          JOB_DATA=$(echo "$JOBS_JSON" | jq '.jobs[] | select(.name == "cpu-info")')
+
+          CREATED_AT=$(echo "$JOB_DATA" | jq -r '.created_at')
+          STARTED_AT=$(echo "$JOB_DATA" | jq -r '.started_at')
+
+          echo "📅 Created: $CREATED_AT"
+          echo "🚀 Started: $STARTED_AT"
+
+          # Calculate queue time (Linux date)
+          CREATED_EPOCH=$(date -d "$CREATED_AT" +%s)
+          STARTED_EPOCH=$(date -d "$STARTED_AT" +%s)
+          QUEUE_SECS=$((STARTED_EPOCH - CREATED_EPOCH))
+
+          # Format as minutes:seconds
+          MINS=$((QUEUE_SECS / 60))
+          SECS=$((QUEUE_SECS % 60))
+
+          echo "⏱️ Queue Time: ${MINS}m ${SECS}s (${QUEUE_SECS} seconds)"
+          echo "=================================================="
+
+      - name: Available Resources
+        run: |
+          echo "📊 AVAILABLE RESOURCES"
+          echo "=================================================="
+          echo "🖥️  CPU: $(nproc) cores"
+          echo "🧠 Memory: $(free -h | awk '/^Mem:/ {print $7}') available / $(free -h | awk '/^Mem:/ {print $2}') total"
+          echo "💾 Disk: $(df -h / | awk 'NR==2 {print $4}') available / $(df -h / | awk 'NR==2 {print $2}') total"
+          echo "=================================================="
+
       - name: Sleep Before Analysis
         run: |
           echo "⏰ Sleeping for ${{ inputs.sleep_seconds }} seconds before starting CPU analysis..."
           sleep ${{ inputs.sleep_seconds }}
           echo "✅ Sleep completed. Starting CPU information gathering..."
-      
+
       - name: Linux CPU Information
         run: |
           df -h || true
@@ -45,7 +89,7 @@ jobs:
           cat ~/.cargo/config.toml 2>/dev/null || true
           pwd || true
           lsblk || true
-          
+
           gh
           gh --version
           echo "🐧 LINUX CPU INFORMATION"
@@ -56,7 +100,7 @@ jobs:
           echo "⏰ Sleep Duration: ${{ inputs.sleep_seconds }} seconds"
           echo "📅 Start Time: $(date)"
           echo ""
-          
+
           # Basic CPU Information
           echo "🔧 CPU Basic Information:"
           echo "=================================================="
@@ -67,7 +111,7 @@ jobs:
           echo "CPU Stepping: $(cat /proc/cpuinfo | grep 'stepping' | head -1 | cut -d':' -f2 | xargs)"
           echo "CPU Microcode: $(cat /proc/cpuinfo | grep 'microcode' | head -1 | cut -d':' -f2 | xargs)"
           echo ""
-          
+
           # CPU Cores and Threading
           echo "🧮 CPU Cores & Threading:"
           echo "=================================================="
@@ -77,7 +121,7 @@ jobs:
           echo "Cores per Socket: $(cat /proc/cpuinfo | grep 'cpu cores' | head -1 | cut -d':' -f2 | xargs)"
           echo "Threads per Core: $(lscpu | grep 'Thread(s) per core' | awk '{print $4}' || echo 'N/A')"
           echo ""
-          
+
           # CPU Frequency Information
           echo "⚡ CPU Frequency:"
           echo "=================================================="
@@ -92,7 +136,7 @@ jobs:
             echo "CPU Governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)"
           fi
           echo ""
-          
+
           # Cache Information
           echo "💾 CPU Cache Information:"
           echo "=================================================="
@@ -100,12 +144,12 @@ jobs:
           echo "L1i Cache: $(lscpu | grep 'L1i cache' | awk '{print $3}' || echo 'N/A')"
           echo "L2 Cache: $(lscpu | grep 'L2 cache' | awk '{print $3}' || echo 'N/A')"
           echo "L3 Cache: $(lscpu | grep 'L3 cache' | awk '{print $3}' || echo 'N/A')"
-          
+
           # Alternative cache info from /proc/cpuinfo
           if [ -z "$(lscpu | grep 'L1d cache')" ]; then
             echo "Cache Size: $(cat /proc/cpuinfo | grep 'cache size' | head -1 | cut -d':' -f2 | xargs)"
           fi
-          
+
           # Cache info from /sys if available
           if [ -d /sys/devices/system/cpu/cpu0/cache ]; then
             echo ""
@@ -122,12 +166,12 @@ jobs:
             done
           fi
           echo ""
-          
+
           # CPU Features and Instruction Sets
           echo "🚀 CPU Features & Instruction Sets:"
           echo "=================================================="
           CPU_FLAGS=$(cat /proc/cpuinfo | grep 'flags' | head -1 | cut -d':' -f2)
-          
+
           # Check for major instruction sets
           echo "📋 SIMD & Vector Instructions:"
           for flag in mmx sse sse2 sse3 ssse3 sse4_1 sse4_2 sse4a avx avx2 avx512f avx512dq avx512cd avx512bw avx512vl; do
@@ -138,7 +182,7 @@ jobs:
             fi
           done
           echo ""
-          
+
           # Check for math and crypto instructions
           echo "🔢 Math & Crypto Instructions:"
           for flag in fma fma4 aes pclmulqdq sha_ni rdrand rdseed; do
@@ -149,7 +193,7 @@ jobs:
             fi
           done
           echo ""
-          
+
           # Check for bit manipulation instructions
           echo "🔧 Bit Manipulation Instructions:"
           for flag in bmi1 bmi2 adx lzcnt popcnt abm; do
@@ -160,7 +204,7 @@ jobs:
             fi
           done
           echo ""
-          
+
           # Check for virtualization features
           echo "🌐 Virtualization Features:"
           for flag in vmx svm; do
@@ -171,7 +215,7 @@ jobs:
             fi
           done
           echo ""
-          
+
           # Check for security features
           echo "🔒 Security Features:"
           for flag in nx smep smap ibrs ibpb stibp ssbd md_clear flush_l1d arch_capabilities; do
@@ -182,7 +226,7 @@ jobs:
             fi
           done
           echo ""
-          
+
           # Check for memory and performance features
           echo "🏎️ Memory & Performance Features:"
           for flag in clflush clflushopt clwb movbe f16c xsave xsaveopt fsgsbase; do
@@ -193,14 +237,14 @@ jobs:
             fi
           done
           echo ""
-          
+
           # All CPU flags (organized)
           echo "📜 All CPU Flags (Alphabetical):"
           echo "=================================================="
           echo "$CPU_FLAGS" | tr ' ' '\n' | sort | tr '\n' ' ' | fold -w 80
           echo ""
           echo ""
-          
+
           # Memory Information
           echo "🧠 Memory Information:"
           echo "=================================================="
@@ -212,7 +256,7 @@ jobs:
           echo "Swap Total: $(free -h | grep '^Swap:' | awk '{print $2}')"
           echo "Swap Used: $(free -h | grep '^Swap:' | awk '{print $3}')"
           echo ""
-          
+
           # Load Average and System Info
           echo "📈 System Performance:"
           echo "=================================================="
@@ -220,7 +264,7 @@ jobs:
           echo "Uptime: $(uptime -p)"
           echo "Boot Time: $(uptime -s)"
           echo ""
-          
+
           # Additional Hardware Info
           echo "🔍 Additional Hardware Info:"
           echo "=================================================="
@@ -230,12 +274,12 @@ jobs:
           echo "Processor Type: $(uname -p)"
           echo "Hardware Platform: $(uname -i)"
           echo ""
-          
+
           # CPU Temperature (if available)
           if [ -f /sys/class/thermal/thermal_zone0/temp ]; then
             echo "🌡️  CPU Temperature: $(($(cat /sys/class/thermal/thermal_zone0/temp) / 1000))°C"
           fi
-          
+
           # CPU vulnerabilities
           echo "🛡️  CPU Vulnerabilities:"
           echo "=================================================="
@@ -249,5 +293,5 @@ jobs:
             done
           fi
           echo ""
-          
+
           echo "🏁 Analysis Complete - $(date)"
