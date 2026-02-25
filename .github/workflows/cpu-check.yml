@@ -12,13 +12,11 @@ on:
           - tenki-local-large
           - tenki-local-ubuntu-22.04-small-2c-4g
           - ubuntu-latest
-          - tenki-standard-vm-small-2c-4g
           - tenki-standard-autoscale
-          - tenki-staging-standard-autoscale
-          - tenki-staging-ubuntu-22.04-large-4c-16g
           - tenki-standard-small-2c-4g
+          - tenki-staging-standard-autoscale
           - tenki-staging-standard-small-2c-4g
-          - tenki-staging-standard-small
+    
       custom_runner:
         description: 'Custom runner (leave empty to use dropdown selection)'
         required: false
