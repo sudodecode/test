@@ -13,6 +13,8 @@ on:
           - tenki-standard-autoscale
           - tenki-standard-large-8c-16g
           - tenki-standard-small-2c-4g
+          - tenki-staging-standard-autoscale
+          - tenki-staging-standard-small-2c-4g
 
 jobs:
   npm-proxy-test:
