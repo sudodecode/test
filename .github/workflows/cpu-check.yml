@@ -18,6 +18,7 @@ on:
           - tenki-staging-ubuntu-22.04-large-4c-16g
           - tenki-standard-small-2c-4g
           - tenki-staging-standard-small-2c-4g
+          - tenki-staging-standard-small
       custom_runner:
         description: 'Custom runner (leave empty to use dropdown selection)'
         required: false
