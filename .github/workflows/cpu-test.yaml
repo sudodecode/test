@@ -22,7 +22,7 @@ on:
 jobs:
   # Generate matrix for 50 jobs
   generate_matrix:
-    runs-on: tenki-staging-standard-autoscale
+    runs-on: ${{ github.event.inputs.runs_on }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
