@@ -1,7 +1,7 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 function listFiles(userInput) {
-  return execSync('ls ' + userInput).toString();
+  return execFileSync('ls', [userInput]).toString();
 }
 
 module.exports = { listFiles };
