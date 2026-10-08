@@ -1,0 +1,187 @@
+# Depot CI Migration
+# Source: .github/workflows/memory-test.yaml
+#
+# Changes made:
+# - Changed runs-on from "tenki-staging-standard-autoscale" to "depot-ubuntu-latest" throughout
+
+name: Memory Stress Jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: 'Specify the runner to use for all 50 jobs'
+        required: true
+        type: string
+        default: 'ubuntu-latest'
+      memory_percentage:
+        description: 'Percentage of available memory to consume (10-90)'
+        required: true
+        type: number
+      duration_seconds:
+        description: 'Duration to hold memory in seconds'
+        required: true
+        type: number
+
+jobs:
+  # Generate matrix for 50 jobs
+  generate_matrix:
+    runs-on: depot-ubuntu-latest # was: tenki-staging-standard-autoscale. Nonstandard GitHub runner label detected, changed to default Depot runner.
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Matrix for 50 Jobs
+        id: set-matrix
+        run: |
+          # Generate array for 50 jobs
+          JOBS_JSON="["
+          for i in $(seq 1 50); do
+            if [ $i -gt 1 ]; then
+              JOBS_JSON="$JOBS_JSON,"
+            fi
+            JOBS_JSON="$JOBS_JSON$i"
+          done
+          JOBS_JSON="$JOBS_JSON]"
+          
+          echo "matrix={\"job_number\":$JOBS_JSON}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for 50 jobs on runner: ${{ github.event.inputs.runs_on }}"
+
+  # 50 parallel memory stress jobs
+  memory_stress_jobs:
+    needs: generate_matrix
+    runs-on: ${{ github.event.inputs.runs_on }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 50
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install psutil
+
+      - name: Run Memory Stress Test
+        run: |
+          echo "🚀 Starting Memory Stress Test for Job ${{ matrix.job_number }}"
+          echo "============================================================"
+          echo "📊 Job Number: ${{ matrix.job_number }}/50"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🧠 Memory Target: ${{ github.event.inputs.memory_percentage }}%"
+          echo "⏱️  Duration: ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "📅 Start Time: $(date)"
+          echo ""
+          
+          # Run the memory stress test
+          python stress-memory.py ${{ github.event.inputs.memory_percentage }} ${{ github.event.inputs.duration_seconds }} "Job-${{ matrix.job_number }}"
+          
+          echo ""
+          echo "✅ Memory stress test completed for Job ${{ matrix.job_number }}"
+          echo "📅 End Time: $(date)"
+
+  # Summary job to collect results
+  execution_summary:
+    needs: memory_stress_jobs
+    runs-on: depot-ubuntu-latest # was: tenki-staging-standard-autoscale. Nonstandard GitHub runner label detected, changed to default Depot runner.
+    if: always()
+    steps:
+      - name: Memory Stress Test Summary
+        run: |
+          echo "🧠 MEMORY STRESS TEST WORKFLOW SUMMARY"
+          echo "======================================"
+          echo "🎯 Total Jobs Executed: 50"
+          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
+          echo "🧠 Memory Stress Level: ${{ github.event.inputs.memory_percentage }}%"
+          echo "⏱️  Duration Per Job: ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "🚀 Execution Strategy: All jobs in parallel"
+          echo "📅 Workflow Completion: $(date)"
+          echo ""
+          echo "📊 Test Configuration:"
+          echo "   - Each job consumed ${{ github.event.inputs.memory_percentage }}% of available memory"
+          echo "   - Memory was held and actively used for ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "   - All 50 jobs ran simultaneously on ${{ github.event.inputs.runs_on }}"
+          echo "   - Used dedicated Python script for controlled memory stress testing"
+          echo ""
+          echo "🎯 Total Theoretical Memory Usage:"
+          echo "   - 50 jobs × ${{ github.event.inputs.memory_percentage }}% = Significant memory pressure"
+          echo "   - Total test duration: ${{ github.event.inputs.duration_seconds }} seconds per job"
+          echo ""
+          
+          # Check if any jobs failed
+          echo "📋 Job Status Analysis:"
+          if [ "${{ needs.memory_stress_jobs.result }}" == "success" ]; then
+            echo "   ✅ All memory stress jobs completed successfully"
+            echo "   ✅ No jobs failed due to memory pressure"
+            echo "   ✅ Runner handled the parallel memory stress well"
+          elif [ "${{ needs.memory_stress_jobs.result }}" == "failure" ]; then
+            echo "   ⚠️  Some memory stress jobs may have failed"
+            echo "   ⚠️  This could indicate memory pressure limits were reached"
+          else
+            echo "   ℹ️  Job completion status: ${{ needs.memory_stress_jobs.result }}"
+          fi
+          
+          echo ""
+          echo "🎉 Memory stress test workflow analysis complete!"
+
+  # Final system verification
+  system_health_check:
+    needs: execution_summary
+    runs-on: ${{ github.event.inputs.runs_on }}
+    if: always()
+    steps:
+      - name: Post-Test System Health Check
+        run: |
+          echo "🏥 SYSTEM HEALTH CHECK"
+          echo "====================="
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "📅 Check Time: $(date)"
+          echo ""
+          
+          echo "💾 Current Memory Status:"
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            echo "Memory information:"
+            free -h
+            echo ""
+            echo "System load:"
+            uptime
+            echo ""
+            echo "Top memory consuming processes:"
+            ps aux --sort=-%mem | head -10
+            
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            echo "Memory information:"
+            vm_stat
+            echo ""
+            echo "System load:"
+            uptime
+            echo ""
+            echo "Top memory consuming processes:"
+            ps aux -m | head -10
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "Windows system information:"
+            powershell -Command "
+            Write-Output 'Memory Status:'
+            Get-WmiObject -Class Win32_OperatingSystem | Select-Object @{Name='Total Memory (GB)'; Expression={[math]::Round(\$_.TotalVisibleMemorySize / 1MB, 2)}}, @{Name='Free Memory (GB)'; Expression={[math]::Round(\$_.FreePhysicalMemory / 1MB, 2)}}
+            Write-Output ''
+            Write-Output 'Top Memory Processes:'
+            Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 10 Name, @{Name='Memory (MB)'; Expression={[math]::Round(\$_.WorkingSet / 1MB, 2)}} | Format-Table -AutoSize
+            "
+          fi
+          
+          echo ""
+          echo "🔍 System Health Assessment:"
+          echo "   ✅ System is responsive and operational"
+          echo "   ✅ Memory stress test completed without system failure"
+          echo "   ✅ Runner successfully handled 50 parallel memory stress jobs"
+          echo "   ✅ Memory has been properly released post-test"
+          echo ""
+          echo "🏁 Final Status: System healthy and operational"
+          echo "🎯 Test Conclusion: ${{ github.event.inputs.runs_on }} performed well under memory stress"

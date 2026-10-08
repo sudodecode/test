@@ -1,0 +1,420 @@
+# Depot CI Migration
+# Source: .github/workflows/cpu-test.yaml
+#
+# Changes made:
+# - Changed runs-on from "tenki-staging-standard-autoscale" to "depot-ubuntu-latest" in job "execution_summary"
+
+name: CPU Stress Jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: 'Specify the runner to use for all 50 jobs'
+        required: true
+        type: string
+        default: 'ubuntu-latest'
+      cpu_percentage:
+        description: 'Percentage of CPU cores to utilize (10-100)'
+        required: true
+        type: number
+        default: 80
+      duration_seconds:
+        description: 'Duration to run CPU stress test in seconds'
+        required: true
+        type: number
+        default: 60
+
+jobs:
+  # Generate matrix for 50 jobs
+  generate_matrix:
+    runs-on: ${{ github.event.inputs.runs_on }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Matrix for 50 Jobs
+        id: set-matrix
+        run: |
+          # Generate array for 50 jobs
+          JOBS_JSON="["
+          for i in $(seq 1 50); do
+            if [ $i -gt 1 ]; then
+              JOBS_JSON="$JOBS_JSON,"
+            fi
+            JOBS_JSON="$JOBS_JSON$i"
+          done
+          JOBS_JSON="$JOBS_JSON]"
+          
+          echo "matrix={\"job_number\":$JOBS_JSON}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for 50 jobs on runner: ${{ github.event.inputs.runs_on }}"
+
+  # 50 parallel CPU stress jobs
+  cpu_stress_jobs:
+    needs: generate_matrix
+    runs-on: ${{ github.event.inputs.runs_on }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 50
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install psutil
+
+      - name: System Information
+        run: |
+          echo "🖥️ SYSTEM INFORMATION - JOB ${{ matrix.job_number }}"
+          echo "=================================================="
+          echo "📊 Job Number: ${{ matrix.job_number }}/50"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 OS: ${{ runner.os }}"
+          echo "🏗️  Architecture: ${{ runner.arch }}"
+          echo "📅 Start Time: $(date)"
+          echo ""
+          
+          # Platform-specific system info
+          echo "🐧 Linux System Details:"
+          echo "=================================================="
+          
+          # Basic CPU Information
+          echo "🔧 CPU Basic Information:"
+          echo "CPU Model: $(cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Vendor: $(cat /proc/cpuinfo | grep 'vendor_id' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Family: $(cat /proc/cpuinfo | grep 'cpu family' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Model ID: $(cat /proc/cpuinfo | grep '^model[[:space:]]*:' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Stepping: $(cat /proc/cpuinfo | grep 'stepping' | head -1 | cut -d':' -f2 | xargs)"
+          echo "CPU Microcode: $(cat /proc/cpuinfo | grep 'microcode' | head -1 | cut -d':' -f2 | xargs)"
+          echo ""
+          
+          # CPU Cores and Threading
+          echo "🧮 CPU Cores & Threading:"
+          echo "Physical CPUs: $(cat /proc/cpuinfo | grep 'physical id' | sort -u | wc -l)"
+          echo "CPU Cores: $(nproc)"
+          echo "Logical CPUs: $(cat /proc/cpuinfo | grep 'processor' | wc -l)"
+          echo "Cores per Socket: $(cat /proc/cpuinfo | grep 'cpu cores' | head -1 | cut -d':' -f2 | xargs)"
+          echo "Threads per Core: $(cat /proc/cpuinfo | grep 'siblings' | head -1 | cut -d':' -f2 | xargs)"
+          echo ""
+          
+          # CPU Frequency Information
+          echo "⚡ CPU Frequency:"
+          echo "Current CPU MHz: $(cat /proc/cpuinfo | grep 'cpu MHz' | head -1 | cut -d':' -f2 | xargs)"
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq ]; then
+            echo "Max Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq) / 1000)) MHz"
+          fi
+          if [ -f /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq ]; then
+            echo "Min Frequency: $(($(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq) / 1000)) MHz"
+          fi
+          echo ""
+          
+          # Cache Information
+          echo "💾 CPU Cache Information:"
+          echo "L1d Cache: $(cat /proc/cpuinfo | grep 'cache size' | head -1 | cut -d':' -f2 | xargs)"
+          if [ -d /sys/devices/system/cpu/cpu0/cache ]; then
+            for cache in /sys/devices/system/cpu/cpu0/cache/index*; do
+              if [ -d "$cache" ]; then
+                level=$(cat "$cache/level" 2>/dev/null || echo "Unknown")
+                type=$(cat "$cache/type" 2>/dev/null || echo "Unknown")
+                size=$(cat "$cache/size" 2>/dev/null || echo "Unknown")
+                echo "L${level} ${type} Cache: ${size}"
+              fi
+            done
+          fi
+          echo ""
+          
+          # CPU Features and Instruction Sets
+          echo "🚀 CPU Features & Instruction Sets:"
+          echo "=================================================="
+          CPU_FLAGS=$(cat /proc/cpuinfo | grep 'flags' | head -1 | cut -d':' -f2)
+          
+          # Check for major instruction sets
+          echo "📋 Major Instruction Set Extensions:"
+          for flag in mmx sse sse2 sse3 ssse3 sse4_1 sse4_2 sse4a avx avx2 avx512f avx512dq avx512cd avx512bw avx512vl fma fma4 aes pclmulqdq sha_ni; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for virtualization features
+          echo "🔧 Virtualization Features:"
+          for flag in vmx svm; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag (Hardware Virtualization)"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for security features
+          echo "🔒 Security Features:"
+          for flag in nx smep smap ibrs ibpb stibp ssbd; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # Check for other notable features
+          echo "🎯 Other Notable Features:"
+          for flag in rdrand rdseed f16c bmi1 bmi2 adx movbe popcnt lzcnt; do
+            if echo "$CPU_FLAGS" | grep -q "\b$flag\b"; then
+              echo "  ✅ $flag"
+            else
+              echo "  ❌ $flag"
+            fi
+          done
+          echo ""
+          
+          # All CPU flags (condensed)
+          echo "📜 All CPU Flags:"
+          echo "$CPU_FLAGS" | tr ' ' '\n' | sort | tr '\n' ' '
+          echo ""
+          echo ""
+          
+          # Memory Information
+          echo "🧠 Memory Information:"
+          echo "Total Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+          echo "Available Memory: $(free -h | grep '^Mem:' | awk '{print $7}')"
+          echo "Used Memory: $(free -h | grep '^Mem:' | awk '{print $3}')"
+          echo "Memory Usage: $(free | grep '^Mem:' | awk '{printf "%.1f%%", ($3/$2) * 100}')"
+          echo ""
+          
+          # Load Average
+          echo "📈 System Load:"
+          echo "Load Average: $(uptime | awk -F'load average:' '{print $2}')"
+          echo "Uptime: $(uptime -p)"
+          echo ""
+
+          
+          
+
+      - name: Run CPU Stress Test
+        run: |
+          echo "🔥 Starting CPU Stress Test for Job ${{ matrix.job_number }}"
+          echo "=========================================================="
+          echo "📊 Job Number: ${{ matrix.job_number }}/50"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "🔥 CPU Target: ${{ github.event.inputs.cpu_percentage }}%"
+          echo "⏱️  Duration: ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "📅 Test Start: $(date)"
+          echo ""
+          
+          # Run the CPU stress test
+          python cpu_stress.py ${{ github.event.inputs.cpu_percentage }} ${{ github.event.inputs.duration_seconds }} "Job-${{ matrix.job_number }}"
+          
+          echo ""
+          echo "✅ CPU stress test completed for Job ${{ matrix.job_number }}"
+          echo "📅 Test End: $(date)"
+
+      - name: Post-Test System Status
+        run: |
+          echo "📈 POST-TEST SYSTEM STATUS"
+          echo "=========================="
+          echo "📊 Job ${{ matrix.job_number }} completed at: $(date)"
+          echo ""
+          
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            echo "🐧 Linux Post-Test Status:"
+            echo "Current Load: $(uptime | awk -F'load average:' '{print $2}')"
+            echo "Memory Status:"
+            free -h | grep '^Mem:'
+            echo "CPU Usage:"
+            top -bn1 | grep "Cpu(s)" | head -1
+            
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            echo "🍎 macOS Post-Test Status:"
+            echo "Current Load: $(uptime | awk -F'load averages:' '{print $2}')"
+            echo "Memory Status:"
+            vm_stat | head -5
+            echo "CPU Usage:"
+            top -l 1 -s 0 | grep "CPU usage" | head -1
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "🪟 Windows Post-Test Status:"
+            powershell -Command "
+            Write-Output 'System Status Check:'
+            Get-Date
+            Write-Output 'CPU and Memory recovered successfully'
+            "
+          fi
+          
+          echo ""
+          echo "✅ System status check completed for Job ${{ matrix.job_number }}"
+
+  # Summary job to collect results
+  execution_summary:
+    needs: cpu_stress_jobs
+    runs-on: depot-ubuntu-latest # was: tenki-staging-standard-autoscale. Nonstandard GitHub runner label detected, changed to default Depot runner.
+    if: always()
+    steps:
+      - name: CPU Stress Test Summary
+        run: |
+          echo "🔥 CPU STRESS TEST WORKFLOW SUMMARY"
+          echo "==================================="
+          echo "🎯 Total Jobs Executed: 50"
+          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
+          echo "🔥 CPU Utilization Target: ${{ github.event.inputs.cpu_percentage }}%"
+          echo "⏱️  Duration Per Job: ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "🚀 Execution Strategy: All jobs in parallel"
+          echo "📅 Workflow Completion: $(date)"
+          echo ""
+          echo "📊 Test Configuration:"
+          echo "   - Each job utilized ${{ github.event.inputs.cpu_percentage }}% of available CPU cores"
+          echo "   - CPU stress was maintained for ${{ github.event.inputs.duration_seconds }} seconds"
+          echo "   - All 50 jobs ran simultaneously on ${{ github.event.inputs.runs_on }}"
+          echo "   - Used dedicated Python script with multiple workload types"
+          echo "   - Workloads included: math operations, prime generation, sorting, hashing, matrix ops"
+          echo ""
+          echo "🎯 Theoretical CPU Load:"
+          echo "   - 50 parallel jobs × ${{ github.event.inputs.cpu_percentage }}% CPU = Extreme CPU pressure"
+          echo "   - Multiple worker processes per job utilizing different CPU cores"
+          echo "   - Total test duration: ${{ github.event.inputs.duration_seconds }} seconds per job"
+          echo "   - Workload diversity prevents CPU optimization and ensures real load"
+          echo ""
+          
+          # Check if any jobs failed
+          echo "📋 Job Status Analysis:"
+          if [ "${{ needs.cpu_stress_jobs.result }}" == "success" ]; then
+            echo "   ✅ All CPU stress jobs completed successfully"
+            echo "   ✅ No jobs failed due to CPU overload or thermal throttling"
+            echo "   ✅ Runner handled the parallel CPU stress efficiently"
+            echo "   ✅ Multi-core utilization worked as expected"
+          elif [ "${{ needs.cpu_stress_jobs.result }}" == "failure" ]; then
+            echo "   ⚠️  Some CPU stress jobs may have failed"
+            echo "   ⚠️  This could indicate CPU thermal limits or system instability"
+            echo "   ⚠️  Check individual job logs for specific failure reasons"
+          else
+            echo "   ℹ️  Job completion status: ${{ needs.cpu_stress_jobs.result }}"
+          fi
+          
+          echo ""
+          echo "🔬 CPU Stress Test Insights:"
+          echo "   - Tested multi-core performance under extreme parallel load"
+          echo "   - Validated system stability during sustained CPU usage"
+          echo "   - Measured thermal and frequency scaling behavior"
+          echo "   - Assessed job scheduling efficiency under high CPU contention"
+          echo ""
+          echo "🎉 CPU stress test workflow analysis complete!"
+
+  # Final system health check
+  system_health_check:
+    needs: execution_summary
+    runs-on: ${{ github.event.inputs.runs_on }}
+    if: always()
+    steps:
+      - name: Set up Python for Health Check
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies for Health Check
+        run: |
+          python -m pip install --upgrade pip
+          pip install psutil
+
+      - name: Final System Health Assessment
+        run: |
+          echo "🏥 FINAL SYSTEM HEALTH CHECK"
+          echo "============================"
+          echo "🖥️  Runner: ${{ github.event.inputs.runs_on }}"
+          echo "📅 Health Check Time: $(date)"
+          echo ""
+          
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            echo "🐧 Linux System Health:"
+            echo "Current system load:"
+            uptime
+            echo ""
+            echo "Memory usage:"
+            free -h
+            echo ""
+            echo "CPU information:"
+            cat /proc/cpuinfo | grep 'model name' | head -1
+            echo "Available CPU cores: $(nproc)"
+            echo ""
+            echo "Top processes by CPU usage:"
+            ps aux --sort=-%cpu | head -10
+            echo ""
+            echo "System temperatures (if available):"
+            if command -v sensors >/dev/null 2>&1; then
+              sensors 2>/dev/null || echo "Temperature sensors not available"
+            else
+              echo "lm-sensors not installed"
+            fi
+            
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            echo "🍎 macOS System Health:"
+            echo "Current system load:"
+            uptime
+            echo ""
+            echo "Memory usage:"
+            vm_stat
+            echo ""
+            echo "CPU information:"
+            sysctl -n machdep.cpu.brand_string
+            echo "Available CPU cores: $(sysctl -n hw.ncpu)"
+            echo ""
+            echo "Top processes by CPU usage:"
+            ps aux -r | head -10
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "🪟 Windows System Health:"
+            powershell -Command "
+            Write-Output 'System Information:'
+            Get-Date
+            Write-Output ''
+            Write-Output 'CPU Information:'
+            Get-WmiObject -Class Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List
+            Write-Output 'Memory Information:'
+            \$mem = Get-WmiObject -Class Win32_OperatingSystem
+            \$totalMem = [math]::Round(\$mem.TotalVisibleMemorySize / 1MB, 2)
+            \$freeMem = [math]::Round(\$mem.FreePhysicalMemory / 1MB, 2)
+            \$usedMem = \$totalMem - \$freeMem
+            \$memPercent = [math]::Round((\$usedMem / \$totalMem) * 100, 1)
+            Write-Output \"Total Memory: \$totalMem GB\"
+            Write-Output \"Used Memory: \$usedMem GB (\$memPercent%)\"
+            Write-Output \"Free Memory: \$freeMem GB\"
+            Write-Output ''
+            Write-Output 'Top CPU Processes:'
+            Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 Name, CPU, WorkingSet | Format-Table -AutoSize
+            "
+          fi
+          
+          echo ""
+          echo "🔍 Health Assessment Summary:"
+          echo "   ✅ System is fully responsive and operational"
+          echo "   ✅ CPU stress test completed without permanent system impact"
+          echo "   ✅ Runner successfully handled 50 parallel CPU stress jobs"
+          echo "   ✅ No signs of thermal throttling or performance degradation"
+          echo "   ✅ System resources have returned to normal baseline levels"
+          echo "   ✅ Memory management and process cleanup successful"
+          echo ""
+          echo "🎯 Performance Test Results:"
+          echo "   - Successfully executed 50 parallel CPU stress tests"
+          echo "   - Sustained ${{ github.event.inputs.cpu_percentage }}% CPU utilization per job"
+          echo "   - Maintained load for ${{ github.event.inputs.duration_seconds }} seconds per job"
+          echo "   - Verified multi-core performance and thermal management"
+          echo "   - Confirmed system stability under extreme parallel CPU load"
+          echo "   - Validated GitHub Actions runner CPU handling capabilities"
+          echo ""
+          echo "🏁 FINAL STATUS: SYSTEM HEALTHY AND FULLY OPERATIONAL"
+          echo "🎉 CPU STRESS TEST WORKFLOW COMPLETED SUCCESSFULLY!"
+          echo ""
+          echo "📊 Test Conclusion:"
+          echo "   The ${{ github.event.inputs.runs_on }} runner demonstrated excellent"
+          echo "   CPU performance and stability under extreme parallel load testing."
+          echo "   All systems are functioning normally post-test."

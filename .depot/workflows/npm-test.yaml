@@ -1,0 +1,88 @@
+# Depot CI Migration
+# Source: .github/workflows/npm-test.yaml
+#
+# No automatic rewrites were applied; review any notes below.
+
+name: Test NPM Proxy Speed
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Select GitHub runner"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - ubuntu-latest
+          - tenki-standard-autoscale
+          - tenki-standard-large-8c-16g
+          - tenki-standard-small-2c-4g
+          - tenki-staging-standard-autoscale
+          - tenki-staging-standard-small-2c-4g
+
+jobs:
+  npm-proxy-test:
+    runs-on: ${{ github.event.inputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Configure .npmrc for proxy
+        run: |
+          echo "registry=http://192.168.21.57:7990/aki-npm/npm" > ~/.npmrc
+          echo "strict-ssl=false" >> ~/.npmrc
+          echo "===== .npmrc configured ====="
+          cat ~/.npmrc
+
+      - name: Show npm configuration
+        run: npm config list
+
+      - name: Install random popular npm packages
+        run: |
+          echo "Installing test packages..."
+          time npm install \
+            react \
+            express \
+            lodash \
+            axios \
+            chalk \
+            typescript \
+            moment \
+            eslint \
+            vue \
+            next \
+            jest \
+            rimraf \
+            commander \
+            webpack \
+            @babel/core \
+            lodash \
+            chalk \
+            express \
+            vue \
+            webpack\
+            uuid \
+            classnames \
+            chromatic \
+            storybook-addon-apollo-client \
+            react-horizontal-scrolling-menu \
+            top-user-agents \
+            w3counter \
+            lang-list
+
+      - name: Verify install worked
+        run: |
+          echo "Checking installed packages..."
+          ls -lh node_modules | head -n 20
+          npm list --depth=0
+
+      - name: Validate npm proxy
+        run: |
+          echo "Running proxy validation..."
+          npm ping

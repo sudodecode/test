@@ -1,0 +1,321 @@
+# Depot CI Migration
+# Source: .github/workflows/default.yml
+#
+# Changes made:
+# - Changed runs-on from "tenki-staging-standard-autoscale" to "depot-ubuntu-latest" throughout
+
+name: 50 Parallel Jobs on Dynamic Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs_on:
+        description: 'Specify the runner to use for all 50 jobs'
+        required: true
+        type: string
+        default: 'ubuntu-latest'
+      sleep_time:
+        description: 'Specify sleep time in seconds'
+        required: true
+        type: number
+
+jobs:
+  # Generate matrix for 50 jobs
+  generate_matrix:
+    runs-on: depot-ubuntu-latest # was: tenki-staging-standard-autoscale. Nonstandard GitHub runner label detected, changed to default Depot runner.
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate Matrix for 50 Jobs
+        id: set-matrix
+        run: |
+          # Generate array for 50 jobs
+          JOBS_JSON="["
+          for i in $(seq 1 50); do
+            if [ $i -gt 1 ]; then
+              JOBS_JSON="$JOBS_JSON,"
+            fi
+            JOBS_JSON="$JOBS_JSON$i"
+          done
+          JOBS_JSON="$JOBS_JSON]"
+          
+          echo "matrix={\"job_number\":$JOBS_JSON}" >> $GITHUB_OUTPUT
+          echo "Generated matrix for 50 jobs on runner: ${{ github.event.inputs.runs_on }}"
+          echo "Jobs array: $JOBS_JSON"
+
+  # 50 parallel jobs all using the same dynamic runner
+  parallel_jobs:
+    needs: generate_matrix
+    runs-on: ${{ github.event.inputs.runs_on }}
+    strategy:
+      matrix: ${{ fromJson(needs.generate_matrix.outputs.matrix) }}
+      fail-fast: false
+      max-parallel: 50 # All 50 can run in parallel
+    steps:
+      - name: Execute Job ${{ matrix.job_number }} on ${{ github.event.inputs.runs_on }}
+        run: |
+          echo "🎯 JOB EXECUTION DETAILS"
+          echo "========================"
+          echo "📊 Job Number: ${{ matrix.job_number }}"
+          echo "🖥️  Runner Type: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 Runner OS: ${{ runner.os }}"
+          echo "🏗️  Runner Architecture: ${{ runner.arch }}"
+          echo "📅 Execution Time: $(date)"
+          echo "🔢 Matrix Job ID: ${{ matrix.job_number }}/50"
+          echo ""
+          echo "⚡ CPU STRESS TEST"
+          echo "=================="
+          echo "Starting 1-minute CPU stress test..."
+          echo "Start Time: $(date)"
+          
+          # Get number of CPU cores for optimal stress testing
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            if command -v nproc >/dev/null 2>&1; then
+              CPU_CORES=$(nproc)
+            elif command -v sysctl >/dev/null 2>&1; then
+              CPU_CORES=$(sysctl -n hw.ncpu)
+            else
+              CPU_CORES=2
+            fi
+            echo "CPU Cores detected: $CPU_CORES"
+            echo "Launching $CPU_CORES stress processes..."
+            
+            # Create a simple stress test function
+            stress_cpu() {
+              local process_id=$1
+              echo "Starting stress process $process_id"
+              local end_time=$(($(date +%s) + 60))
+              local counter=0
+              while [ $(date +%s) -lt $end_time ]; do
+                # Simple CPU-intensive operations
+                counter=$((counter + 1))
+                result=$((counter * 137 + counter % 1000))
+                if [ $counter -gt 100000 ]; then
+                  counter=0
+                fi
+              done
+              echo "Stress process $process_id completed"
+            }
+            
+            # Launch stress processes in background
+            pids=""
+            for i in $(seq 1 $CPU_CORES); do
+              stress_cpu $i &
+              pids="$pids $!"
+            done
+            
+            # Monitor system during stress test (simplified)
+            echo "Monitoring system performance..."
+            for iteration in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              sleep 5
+              seconds=$((iteration * 5))
+              echo "[$seconds s] Stress test running..."
+              if command -v uptime >/dev/null 2>&1; then
+                uptime
+              fi
+            done
+            
+            # Wait for all stress processes to complete
+            for pid in $pids; do
+              wait $pid 2>/dev/null || true
+            done
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "Running Windows CPU stress test..."
+            # Simplified Windows stress test
+            powershell -Command "
+            Write-Output 'Starting Windows CPU stress test...'
+            \$startTime = Get-Date
+            \$endTime = \$startTime.AddMinutes(1)
+            \$counter = 0
+            while ((Get-Date) -lt \$endTime) {
+              \$counter++
+              \$result = \$counter * 137 + (\$counter % 1000)
+              if (\$counter -gt 100000) { \$counter = 0 }
+              if ((\$counter % 10000) -eq 0) {
+                \$elapsed = ((Get-Date) - \$startTime).TotalSeconds
+                Write-Output \"[\$([math]::Round(\$elapsed))s] CPU stress running...\"
+              }
+            }
+            Write-Output 'Windows CPU stress test completed'
+            "
+          fi
+          
+          echo "CPU Stress Test completed at: $(date)"
+          echo "✅ 1-minute CPU stress test finished"
+          echo ""
+          
+          echo "📊 POST-STRESS SYSTEM STATE"
+          echo "==========================="
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            echo "System status after stress test:"
+            if command -v uptime >/dev/null 2>&1; then
+              uptime
+            fi
+            if command -v free >/dev/null 2>&1; then
+              free -h
+            fi
+            echo "Stress test completed successfully"
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "Windows system status after stress test:"
+            powershell -Command "Get-Date; Write-Output 'Stress test completed successfully'"
+          fi
+          echo ""
+          
+          echo "📂 WORKSPACE INFORMATION"
+          echo "======================="
+          echo "Working Directory: $(pwd)"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Runner Name: $RUNNER_NAME"
+          echo "Runner Workspace: $RUNNER_WORKSPACE"
+          echo ""
+          
+          echo "🖥️ SYSTEM INFORMATION"
+          echo "===================="
+          
+          # Cross-platform system info
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            echo "🐧 Linux System:"
+            echo "User: $(whoami)"
+            echo "Hostname: $(hostname)"
+            echo "Uptime: $(uptime)"
+            echo "CPU Cores: $(nproc)"
+            echo "Memory: $(free -h | grep '^Mem:' | awk '{print $2}')"
+            echo "Disk Space: $(df -h / | tail -1 | awk '{print $4}') available"
+            echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+            
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            echo "🪟 Windows System:"
+            echo "User: $env:USERNAME"
+            echo "Computer: $env:COMPUTERNAME"
+            echo "OS: $(Get-ComputerInfo | Select-Object WindowsProductName -ExpandProperty WindowsProductName)"
+            echo "CPU: $(Get-WmiObject -Class Win32_Processor | Select-Object Name -ExpandProperty Name)"
+            echo "Memory: $(Get-WmiObject -Class Win32_ComputerSystem | Select-Object TotalPhysicalMemory -ExpandProperty TotalPhysicalMemory)"
+            
+          elif [ "${{ runner.os }}" == "macOS" ]; then
+            echo "🍎 macOS System:"
+            echo "User: $(whoami)"
+            echo "Hostname: $(hostname)"
+            echo "macOS Version: $(sw_vers -productVersion)"
+            echo "CPU: $(sysctl -n machdep.cpu.brand_string)"
+            echo "Memory: $(sysctl -n hw.memsize | awk '{print $1/1024/1024/1024 " GB"}')"
+            echo "Disk Space: $(df -h / | tail -1 | awk '{print $4}') available"
+          fi
+          
+          echo ""
+          echo "🌍 GITHUB ENVIRONMENT"
+          echo "===================="
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Run ID: $GITHUB_RUN_ID"
+          echo "Run Number: $GITHUB_RUN_NUMBER"
+          echo "Job: $GITHUB_JOB"
+          echo "Action: $GITHUB_ACTION"
+          echo "Actor: $GITHUB_ACTOR"
+          echo "Event: $GITHUB_EVENT_NAME"
+          echo "SHA: $GITHUB_SHA"
+          echo "Ref: $GITHUB_REF"
+          echo ""
+          
+          echo "📌 RUNNING PROCESSES (Top 10)"
+          echo "============================="
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            ps aux --sort=-%cpu | head -10
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 | Format-Table
+          fi
+          echo ""
+          
+          echo "🔧 AVAILABLE TOOLS"
+          echo "=================="
+          echo "Checking common development tools..."
+          
+          # Check tools based on OS
+          if [ "${{ runner.os }}" == "Linux" ] || [ "${{ runner.os }}" == "macOS" ]; then
+            # Check each tool individually to avoid exit code issues
+            echo "Git: $(git --version 2>/dev/null || echo 'not found')"
+            echo "Node: $(node --version 2>/dev/null || echo 'not found')"
+            echo "NPM: $(npm --version 2>/dev/null || echo 'not found')"
+            echo "Python3: $(python3 --version 2>/dev/null || echo 'not found')"
+            echo "Python: $(python --version 2>/dev/null || echo 'not found')"
+            echo "Pip3: $(pip3 --version 2>/dev/null || echo 'not found')"
+            echo "Pip: $(pip --version 2>/dev/null || echo 'not found')"
+            echo "Docker: $(docker --version 2>/dev/null || echo 'not found')"
+            echo "Kubectl: $(kubectl version --client=true --short=true 2>/dev/null || echo 'not found')"
+            echo "Terraform: $(terraform --version 2>/dev/null | head -1 || echo 'not found')"
+            echo "AWS CLI: $(aws --version 2>/dev/null || echo 'not found')"
+            echo "GCloud: $(gcloud --version 2>/dev/null | head -1 || echo 'not found')"
+          elif [ "${{ runner.os }}" == "Windows" ]; then
+            # Use cmd commands for Windows
+            echo "Git: $(git --version 2>nul || echo 'not found')"
+            echo "Node: $(node --version 2>nul || echo 'not found')"
+            echo "NPM: $(npm --version 2>nul || echo 'not found')"
+            echo "Python: $(python --version 2>nul || echo 'not found')"
+            echo "Pip: $(pip --version 2>nul || echo 'not found')"
+            echo "Docker: $(docker --version 2>nul || echo 'not found')"
+            echo "Checking additional Windows tools..."
+          fi
+          
+          echo ""
+          echo "⏲️ EXECUTION PHASE"
+          echo "=================="
+          echo "Sleep Duration: ${{ github.event.inputs.sleep_time }} seconds"
+          echo "Start Time: $(date)"
+          
+          # Cross-platform sleep
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            Start-Sleep -Seconds ${{ github.event.inputs.sleep_time }}
+          else
+            sleep ${{ github.event.inputs.sleep_time }}
+          fi
+          
+          echo "End Time: $(date)"
+          echo ""
+          echo "✅ Job ${{ matrix.job_number }} completed successfully on ${{ github.event.inputs.runs_on }}"
+          echo "🎉 Runner performed as expected!"
+
+  # Summary job to collect results
+  execution_summary:
+    needs: parallel_jobs
+    runs-on: depot-ubuntu-latest # was: tenki-staging-standard-autoscale. Nonstandard GitHub runner label detected, changed to default Depot runner.
+    if: always()
+    steps:
+      - name: Workflow Execution Summary
+        run: |
+          echo "📊 WORKFLOW EXECUTION SUMMARY"
+          echo "============================="
+          echo "🎯 Total Jobs: 50"
+          echo "🖥️  Runner Used: ${{ github.event.inputs.runs_on }}"
+          echo "⏲️ Sleep Time Per Job: ${{ github.event.inputs.sleep_time }} seconds"
+          echo "🕐 Total Sleep Time: $((50 * ${{ github.event.inputs.sleep_time }})) seconds"
+          echo "🚀 Execution Strategy: All jobs ran in parallel"
+          echo "📅 Completion Time: $(date)"
+          echo ""
+          echo "💡 Results:"
+          echo "   - All 50 jobs executed on the same runner type"
+          echo "   - Each job provided detailed system information"
+          echo "   - Jobs ran simultaneously to test runner capacity"
+          echo "   - Runner type '${{ github.event.inputs.runs_on }}' was used consistently"
+          echo ""
+          echo "🎉 Multi-job execution workflow completed!"
+
+  # Verification that all jobs used the correct runner
+  verify_runner_consistency:
+    needs: execution_summary
+    runs-on: ${{ github.event.inputs.runs_on }}
+    steps:
+      - name: Final Verification
+        run: |
+          echo "✅ RUNNER VERIFICATION"
+          echo "====================="
+          echo "🖥️  This verification job is running on: ${{ github.event.inputs.runs_on }}"
+          echo "🌍 Runner OS: ${{ runner.os }}"
+          echo "🏗️  Architecture: ${{ runner.arch }}"
+          echo "📊 All 50 jobs used this same runner configuration"
+          echo "🎯 Dynamic runner input was successfully applied to all jobs"
+          echo ""
+          echo "🏁 WORKFLOW COMPLETE"
+          echo "==================="
+          echo "✅ Successfully executed 50 parallel jobs"
+          echo "✅ All jobs used runner: ${{ github.event.inputs.runs_on }}"
+          echo "✅ Dynamic runner configuration worked correctly"
+          echo "✅ System information collected from all instances"
