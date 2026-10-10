@@ -35,7 +35,7 @@ defaults:
 jobs:
   setup:
     name: Setup toolchain
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     env:
       JOB_LEVEL: setup
@@ -119,7 +119,7 @@ jobs:
 
   docs-site:
     name: Docs site (independent, slow)
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +142,7 @@ jobs:
 
   license-scan:
     name: License scan (independent, short)
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -160,7 +160,7 @@ jobs:
   lint-go:
     name: Lint Go
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -184,7 +184,7 @@ jobs:
   lint-ts:
     name: Lint TypeScript
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -205,7 +205,7 @@ jobs:
   typecheck:
     name: Typecheck
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 8
     outputs:
       version: ${{ steps.relay.outputs.version }}
@@ -225,7 +225,7 @@ jobs:
   unit:
     name: Unit tests
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -266,7 +266,7 @@ jobs:
   log-flood:
     name: Log flood
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
@@ -295,7 +295,7 @@ jobs:
   security-audit:
     name: Security audit
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
@@ -313,7 +313,7 @@ jobs:
   changelog:
     name: Changelog
     needs: setup
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 5
     outputs:
       entries: ${{ steps.collect.outputs.entries }}
@@ -328,7 +328,7 @@ jobs:
   build:
     name: Build
     needs: [lint-go, lint-ts, typecheck, unit]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     strategy:
       max-parallel: 3
@@ -378,7 +378,7 @@ jobs:
   integration:
     name: Integration
     needs: build
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -406,7 +406,7 @@ jobs:
   integration-db:
     name: Integration (database)
     needs: build
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -430,7 +430,7 @@ jobs:
   e2e-chrome:
     name: E2E (chrome)
     needs: [integration, integration-db]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -448,7 +448,7 @@ jobs:
   e2e-firefox:
     name: E2E (firefox)
     needs: [integration, integration-db]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -466,7 +466,7 @@ jobs:
   e2e-safari:
     name: E2E (webkit, experimental)
     needs: [integration, integration-db]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     continue-on-error: true
     steps:
@@ -480,7 +480,7 @@ jobs:
   package:
     name: Package
     needs: [setup, build, e2e-chrome, e2e-firefox]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 10
     outputs:
       image: ${{ steps.image.outputs.ref }}
@@ -508,14 +508,14 @@ jobs:
     name: Sign Windows binaries (release branches only)
     needs: package
     if: startsWith(github.ref, 'refs/heads/release/')
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - run: echo "signing"
 
   notarize:
     name: Notarize (needs signing)
     needs: sign-windows
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - run: echo "notarizing"
 
@@ -523,7 +523,7 @@ jobs:
     name: Deploy preview
     needs: package
     if: inputs.deploy || github.event_name == 'pull_request'
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 5
     outputs:
       url: ${{ steps.deploy.outputs.url }}
@@ -537,14 +537,14 @@ jobs:
   smoke-preview:
     name: Smoke test preview
     needs: deploy-preview
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - run: echo "curl ${{ needs.deploy-preview.outputs.url }}/healthz -> 200"
 
   perf-bench:
     name: Performance benchmarks
     needs: package
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
@@ -559,7 +559,7 @@ jobs:
   release-notes:
     name: Release notes
     needs: [changelog, package]
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - run: echo "release notes with ${{ needs.changelog.outputs.entries }} entries for ${{ needs.package.outputs.image }}"
 
@@ -567,7 +567,7 @@ jobs:
     name: Notify on failure
     needs: [unit, integration, package]
     if: failure()
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - run: |
           echo "unit=${{ needs.unit.result }} integration=${{ needs.integration.result }} package=${{ needs.package.result }}"
@@ -577,7 +577,7 @@ jobs:
     name: Summary
     needs: [setup, docs-site, license-scan, security-audit, log-flood, build, e2e-safari, package, sign-windows, notarize, deploy-preview, smoke-preview, perf-bench, release-notes]
     if: always()
-    runs-on: tenki-standard-small-2c-4g
+    runs-on: tenki-staging-standard-small-2c-4g
     steps:
       - name: Results
         run: |
