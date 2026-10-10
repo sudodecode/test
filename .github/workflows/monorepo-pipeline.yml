@@ -1,0 +1,584 @@
+name: Monorepo pipeline (GitHub Actions)
+# Same jobs as .tenki/workflows/stress.yml on Tenki runners, to compare against Tenki CI. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      fail_at:
+        description: Stage that should fail
+        type: choice
+        options: [none, unit, integration]
+        default: none
+      deploy:
+        description: Deploy a preview environment
+        type: boolean
+        default: false
+      flood_lines:
+        description: Lines printed by the log flood job
+        type: number
+        default: 20000
+
+env:
+  FAIL_AT: ${{ inputs.fail_at || 'none' }}
+  MONOREPO: example.com/mono
+  LOG_LEVEL: info
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    name: Setup toolchain
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    env:
+      JOB_LEVEL: setup
+      USE_DOCKER: "false"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha_short: ${{ steps.version.outputs.sha_short }}
+      cache_key: ${{ steps.cache.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print context
+        run: |
+          echo "::group::GitHub context"
+          echo "event=${{ github.event_name }} ref=${{ github.ref }} sha=${{ github.sha }}"
+          echo "actor=${{ github.actor }} run_number=${{ github.run_number }} attempt=${{ github.run_attempt }}"
+          echo "::endgroup::"
+          echo "::group::Environment (workflow, job and step level)"
+          echo "MONOREPO=$MONOREPO LOG_LEVEL=$LOG_LEVEL JOB_LEVEL=$JOB_LEVEL STEP_LEVEL=$STEP_LEVEL FAIL_AT=$FAIL_AT"
+          env | sort | grep -E '^(GITHUB|RUNNER|CI|TENKI)_' | sed 's/=.*/=<redacted>/' | head -60
+          echo "::endgroup::"
+        env:
+          STEP_LEVEL: print-context
+      - name: Install toolchain
+        run: |
+          source scripts/ci/logs.sh
+          for tool in go@1.24.4 node@22.11.0 pnpm@9.12.3 protoc@28.3 buf@1.47.2; do
+            progress "$(blue fetch) ${tool}" 25 0.04
+          done
+          log "$(green done) toolchain ready"
+      - name: Restore cache
+        id: cache
+        run: |
+          source scripts/ci/logs.sh
+          key="mono-$(echo "${{ github.sha }}" | cut -c1-12)-v3"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          progress "restore $key" 40 0.03
+          log "cache restored: 1.42 GiB in 3.1s"
+      - name: Resolve version
+        id: version
+        run: |
+          version="1.$(( $(date +%j) )).${{ github.run_number }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "MONO_VERSION=$version" >> "$GITHUB_ENV"
+          echo "resolved version $version"
+      - name: Read version from GITHUB_ENV
+        run: echo "MONO_VERSION from GITHUB_ENV is $MONO_VERSION"
+      - name: Docker login (skipped, USE_DOCKER is false)
+        if: env.USE_DOCKER == 'true'
+        run: echo "this never runs"
+      - name: Mask a secret value
+        run: |
+          echo "::add-mask::super-secret-token-123"
+          echo "the token is super-secret-token-123 (should be masked)"
+      - name: Annotations
+        run: |
+          echo "::notice title=Version::Building version ${{ steps.version.outputs.version }}"
+          echo "::warning file=services/api/main.go,line=12,col=5::Deprecated flag --legacy-auth is still set"
+          echo "::warning::GOFLAGS contains -mod=mod; prefer vendored modules"
+          echo "::debug::this is a debug line and only shows with debug logging"
+      - name: Long lines
+        run: |
+          source scripts/ci/logs.sh
+          longline 6000
+          echo "short line after the long one"
+      - name: Step summary
+        run: |
+          {
+            echo "## Setup"
+            echo ""
+            echo "| key | value |"
+            echo "| --- | --- |"
+            echo "| version | ${{ steps.version.outputs.version }} |"
+            echo "| cache | ${{ steps.cache.outputs.key }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "wrote step summary"
+      - name: Mixed stdout and stderr
+        run: |
+          source scripts/ci/logs.sh
+          noisy 40
+
+  docs-site:
+    name: Docs site (independent, slow)
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install docs dependencies
+        run: |
+          source scripts/ci/logs.sh
+          progress "pnpm install" 40 0.05
+      - name: Build docs (streams for ~30s)
+        timeout-minutes: 2
+        run: |
+          source scripts/ci/logs.sh
+          slow 30 docs
+      - name: Check links
+        run: |
+          source scripts/ci/logs.sh
+          for i in $(seq 1 120); do echo "$(green ok) /docs/page-$i.html -> 200"; done
+      - name: Publish docs (only on main)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: echo "would publish docs"
+
+  license-scan:
+    name: License scan (independent, short)
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan Go modules
+        run: |
+          for m in grpc protobuf zap otel chi pgx sqlc temporal; do echo "go: $m Apache-2.0 OK"; done
+      - name: Scan npm packages
+        run: |
+          for m in react next zod tanstack vite eslint prettier; do echo "npm: $m MIT OK"; done
+      - name: Unknown license (warning)
+        run: echo "::warning title=License::left-pad 0.0.3 has no license field"
+      - name: Report
+        run: echo "license scan complete, 0 violations"
+
+  lint-go:
+    name: Lint Go
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: gofmt
+        run: for f in $(seq 1 60); do echo "gofmt services/api/pkg$f.go ok"; done
+      - name: go vet
+        run: |
+          echo "::group::go vet ./..."
+          for f in $(seq 1 200); do echo "vet example.com/mono/services/pkg$f"; done
+          echo "::endgroup::"
+      - name: golangci-lint
+        run: |
+          source scripts/ci/logs.sh
+          progress "golangci-lint run" 50 0.04
+          echo "::warning file=services/api/handler.go,line=88::ineffassign: ineffectual assignment to err"
+          echo "services/api/handler.go:88:3: ineffectual assignment to err (ineffassign)"
+      - name: Report
+        if: always()
+        run: echo "lint-go done (version ${{ needs.setup.outputs.version }})"
+
+  lint-ts:
+    name: Lint TypeScript
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: eslint
+        run: |
+          for f in $(seq 1 150); do echo "apps/web/src/component$f.tsx: 0 problems"; done
+          echo "::warning file=apps/web/src/App.tsx,line=3::'React' is defined but never used"
+      - name: prettier --check
+        run: for f in $(seq 1 80); do echo "Checking apps/web/src/file$f.ts"; done
+      - name: Stylelint (allowed to fail)
+        continue-on-error: true
+        run: |
+          echo "apps/web/src/styles.css:14:3 Unexpected unknown property 'colr'" >&2
+          exit 2
+      - name: Report
+        run: echo "lint-ts done; the stylelint failure above did not fail the job"
+
+  typecheck:
+    name: Typecheck
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 8
+    outputs:
+      version: ${{ steps.relay.outputs.version }}
+      checked: ${{ steps.tsc.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: tsc --noEmit
+        id: tsc
+        run: |
+          source scripts/ci/logs.sh
+          progress "tsc" 40 0.05
+          echo "files=1834" >> "$GITHUB_OUTPUT"
+      - name: Relay setup version
+        id: relay
+        run: echo "version=${{ needs.setup.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+  unit:
+    name: Unit tests
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare shard
+        run: echo "shard $SHARD of 4, cache ${{ needs.setup.outputs.cache_key }}"
+      - name: Run tests
+        id: tests
+        run: |
+          source scripts/ci/logs.sh
+          fail=0
+          if [ "$FAIL_AT" = unit ] && [ "$SHARD" = 3 ]; then fail=17; fi
+          echo "::group::package api"
+          gotest api 25
+          echo "::endgroup::"
+          echo "::group::package billing"
+          gotest billing 30 "$fail"
+          echo "::endgroup::"
+      - name: Coverage (runs only on success)
+        if: success()
+        run: |
+          echo "coverage shard $SHARD: $((60 + RANDOM % 30)).$((RANDOM % 9))%"
+      - name: Dump failure logs (runs only on failure)
+        if: failure()
+        run: |
+          echo "::error title=Unit tests::shard $SHARD failed, see TestBillingCase17"
+          for i in $(seq 1 50); do echo "debug: goroutine $i [select]: runtime.gopark(...)"; done
+      - name: Publish test report (always)
+        if: always()
+        run: echo "junit report for shard $SHARD written (tests outcome=${{ steps.tests.outcome }})"
+
+  log-flood:
+    name: Log flood
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print many lines quickly
+        run: |
+          source scripts/ci/logs.sh
+          flood "${{ inputs.flood_lines || 20000 }}"
+      - name: Grouped output
+        run: |
+          for g in $(seq 1 10); do
+            echo "::group::Group $g"
+            for i in $(seq 1 100); do echo "group $g line $i"; done
+            echo "::endgroup::"
+          done
+      - name: Progress bars
+        run: |
+          source scripts/ci/logs.sh
+          progress "download layer 1/3" 50 0.02
+          progress "download layer 2/3" 50 0.02
+          progress "download layer 3/3" 50 0.02
+      - name: Stderr burst
+        run: |
+          for i in $(seq 1 300); do echo "stderr line $i" >&2; done
+          echo "stdout after stderr"
+
+  security-audit:
+    name: Security audit
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: govulncheck
+        run: |
+          source scripts/ci/logs.sh
+          progress "govulncheck ./..." 40 0.05
+          echo "No vulnerabilities found."
+      - name: npm audit
+        run: echo "found 0 vulnerabilities"
+      - name: Secret scan
+        run: |
+          for i in $(seq 1 40); do echo "scanned commit $i: clean"; done
+
+  changelog:
+    name: Changelog
+    needs: setup
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 5
+    outputs:
+      entries: ${{ steps.collect.outputs.entries }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect entries
+        id: collect
+        run: |
+          git log --oneline -10 || true
+          echo "entries=7" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: [lint-go, lint-ts, typecheck, unit]
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    strategy:
+      max-parallel: 3
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    env:
+      GOOS: ${{ matrix.os }}
+      GOARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show inputs from upstream jobs
+        run: |
+          echo "version from typecheck relay: ${{ needs.typecheck.outputs.version }}"
+          echo "typecheck checked ${{ needs.typecheck.outputs.checked }} files"
+          echo "unit result: ${{ needs.unit.result }}"
+      - name: Compile
+        run: |
+          source scripts/ci/logs.sh
+          for svc in api worker gateway cli; do
+            progress "go build $svc ($GOOS/$GOARCH)" 30 0.03
+          done
+      - name: Link
+        run: |
+          for i in $(seq 1 30); do echo "link: example.com/mono/services/svc$i"; done
+      - name: Strip (windows skips)
+        if: matrix.os != 'windows'
+        run: echo "strip bin/*"
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          echo "mono ${{ needs.typecheck.outputs.version }} $GOOS/$GOARCH" > "dist/mono-$GOOS-$GOARCH.txt"
+          ls -la dist
+      - name: Upload binary (artifacts are not supported yet)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: bin-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 3
+      - name: Digest
+        id: digest
+        run: echo "digest=sha256:$(sha256sum dist/* | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+  integration:
+    name: Integration
+    needs: build
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [api, billing, search]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start dependencies
+        run: |
+          source scripts/ci/logs.sh
+          for svc in postgres redis nats; do progress "start $svc" 20 0.05; done
+      - name: Run suite
+        run: |
+          source scripts/ci/logs.sh
+          fail=0
+          if [ "$FAIL_AT" = integration ] && [ "${{ matrix.suite }}" = billing ]; then fail=9; fi
+          gotest "${{ matrix.suite }}" 40 "$fail"
+      - name: Upload logs on failure
+        if: failure()
+        run: echo "uploading docker compose logs"
+      - name: Stop dependencies
+        if: always()
+        run: echo "docker compose down"
+
+  integration-db:
+    name: Integration (database)
+    needs: build
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migrate up
+        run: |
+          for i in $(seq -w 1 120); do echo "migrate: applied 20260${i}_change.sql"; done
+      - name: Migrate down check (allowed to fail)
+        continue-on-error: true
+        run: |
+          echo "migrate down: 20260118_change.sql is irreversible" >&2
+          exit 1
+      - name: Long running query tests
+        timeout-minutes: 3
+        run: |
+          source scripts/ci/logs.sh
+          slow 25 db
+      - name: Skipped because of a false condition
+        if: ${{ false }}
+        run: echo never
+
+  e2e-chrome:
+    name: E2E (chrome)
+    needs: [integration, integration-db]
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browsers
+        run: |
+          source scripts/ci/logs.sh
+          progress "playwright install chromium" 50 0.04
+      - name: Run specs
+        run: |
+          for spec in login signup billing settings runs logs approvals artifacts; do
+            for t in 1 2 3 4 5; do echo "  ✓ $spec › case $t ($((RANDOM % 3000))ms)"; done
+          done
+          echo "40 passed"
+
+  e2e-firefox:
+    name: E2E (firefox)
+    needs: [integration, integration-db]
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browsers
+        run: |
+          source scripts/ci/logs.sh
+          progress "playwright install firefox" 50 0.04
+      - name: Run specs
+        run: |
+          for spec in login signup billing settings; do
+            for t in 1 2 3; do echo "  ✓ $spec › case $t ($((RANDOM % 3000))ms)"; done
+          done
+          echo "12 passed"
+
+  e2e-safari:
+    name: E2E (webkit, experimental)
+    needs: [integration, integration-db]
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - name: Run specs
+        run: |
+          echo "  ✓ login › case 1"
+          echo "  ✘ billing › case 2: Timeout 30000ms exceeded" >&2
+          echo "::error title=E2E webkit::billing › case 2 timed out"
+          exit 1
+
+  package:
+    name: Package
+    needs: [setup, build, e2e-chrome, e2e-firefox]
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 10
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download binaries (artifacts are not supported yet)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: bin-*
+          path: dist
+          merge-multiple: true
+      - name: List artifacts
+        run: ls -la dist || true
+      - name: Build image
+        id: image
+        run: |
+          source scripts/ci/logs.sh
+          for layer in $(seq 1 12); do progress "layer $layer/12" 15 0.02; done
+          echo "ref=registry.example.com/mono:${{ needs.setup.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "build digest from matrix: ${{ needs.build.outputs.digest }}"
+          echo "version from setup (direct need): ${{ needs.setup.outputs.version }} sha ${{ needs.setup.outputs.sha_short }}"
+
+  sign-windows:
+    name: Sign Windows binaries (release branches only)
+    needs: package
+    if: startsWith(github.ref, 'refs/heads/release/')
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - run: echo "signing"
+
+  notarize:
+    name: Notarize (needs signing)
+    needs: sign-windows
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - run: echo "notarizing"
+
+  deploy-preview:
+    name: Deploy preview
+    needs: package
+    if: inputs.deploy || github.event_name == 'pull_request'
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 5
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Deploy
+        id: deploy
+        run: |
+          echo "deploying ${{ needs.package.outputs.image }}"
+          echo "url=https://preview-${{ github.run_number }}.example.com" >> "$GITHUB_OUTPUT"
+
+  smoke-preview:
+    name: Smoke test preview
+    needs: deploy-preview
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - run: echo "curl ${{ needs.deploy-preview.outputs.url }}/healthz -> 200"
+
+  perf-bench:
+    name: Performance benchmarks
+    needs: package
+    runs-on: tenki-staging-standard-small-2c-4g
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmarks (streams for ~30s)
+        run: |
+          source scripts/ci/logs.sh
+          for i in $(seq 1 30); do
+            echo "BenchmarkHandler/size=$i-8   	$((100000 + RANDOM))	$((900 + RANDOM % 200)) ns/op	$((RANDOM % 512)) B/op"
+            sleep 1
+          done
+
+  release-notes:
+    name: Release notes
+    needs: [changelog, package]
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - run: echo "release notes with ${{ needs.changelog.outputs.entries }} entries for ${{ needs.package.outputs.image }}"
+
+  on-failure:
+    name: Notify on failure
+    needs: [unit, integration, package]
+    if: failure()
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - run: |
+          echo "unit=${{ needs.unit.result }} integration=${{ needs.integration.result }} package=${{ needs.package.result }}"
+          echo "::error title=Pipeline::the monorepo pipeline failed"
+
+  summary:
+    name: Summary
+    needs: [setup, docs-site, license-scan, security-audit, log-flood, build, e2e-safari, package, sign-windows, notarize, deploy-preview, smoke-preview, perf-bench, release-notes]
+    if: always()
+    runs-on: tenki-staging-standard-small-2c-4g
+    steps:
+      - name: Results
+        run: |
+          echo "setup=${{ needs.setup.result }} docs=${{ needs.docs-site.result }} license=${{ needs.license-scan.result }}"
+          echo "build=${{ needs.build.result }} webkit=${{ needs.e2e-safari.result }} package=${{ needs.package.result }}"
+          echo "sign=${{ needs.sign-windows.result }} notarize=${{ needs.notarize.result }}"
+          echo "deploy=${{ needs.deploy-preview.result }} smoke=${{ needs.smoke-preview.result }} perf=${{ needs.perf-bench.result }}"
+          echo "release-notes=${{ needs.release-notes.result }}"
+      - name: Final summary
+        run: echo "### Pipeline finished for ${{ needs.setup.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
