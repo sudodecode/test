@@ -30,3 +30,8 @@ func (b *TokenBucket) Allow(now time.Time) bool {
 // trigger 2026-10-10T16:12:35Z
 // trigger 2026-10-10T16:24:21Z
 // trigger 2026-10-10T17:00:29Z
+
+// Remaining reports how many whole tokens are available without consuming any.
+func (b *TokenBucket) Remaining() int {
+	return int(b.tokens)
+}
