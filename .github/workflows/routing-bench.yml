@@ -43,7 +43,10 @@ jobs:
           git clone --depth 1 --branch 14.1.1 https://github.com/BurntSushi/ripgrep.git rg
           cd rg
           cargo fetch --locked
-          /usr/bin/time -v cargo build --release --locked --offline 2>&1 | tail -25
+          for i in 1 2 3 4; do
+            cargo clean -q
+            /usr/bin/time -f "round $i: %e s, %P cpu" cargo build --release --locked --offline -q
+          done
 
       - name: go-build-test (caddy v2.8.4 build + unit tests)
         if: matrix.workload == 'go-build-test'
@@ -51,8 +54,11 @@ jobs:
           git clone --depth 1 --branch v2.8.4 https://github.com/caddyserver/caddy.git caddy
           cd caddy
           go mod download
-          /usr/bin/time -v go build ./... 2>&1 | tail -25
-          go test -count=1 ./caddyconfig/... ./modules/caddyhttp/... 2>&1 | tail -20
+          for i in 1 2; do
+            go clean -cache
+            /usr/bin/time -f "build round $i: %e s, %P cpu" go build ./...
+          done
+          /usr/bin/time -f "test: %e s, %P cpu" go test -count=1 ./caddyconfig/... ./modules/caddyhttp/... > test.log 2>&1 || { tail -30 test.log; exit 1; }
 
       - name: ts-typecheck (zod v3.23.8 install + tsc)
         if: matrix.workload == 'ts-typecheck'
@@ -60,8 +66,12 @@ jobs:
           git clone --depth 1 --branch v3.23.8 https://github.com/colinhacks/zod.git zod
           cd zod
           npm install --no-audit --no-fund --ignore-scripts
-          /usr/bin/time -v npx tsc -p tsconfig.json --noEmit 2>&1 | tail -25
-          npx jest --ci 2>&1 | tail -15 || true
+          for i in 1 2 3 4 5 6; do
+            /usr/bin/time -f "tsc round $i: %e s, %P cpu" npx tsc -p tsconfig.json --noEmit
+          done
+          for i in 1 2 3; do
+            /usr/bin/time -f "jest round $i: %e s, %P cpu" npx jest --ci --silent > jest.log 2>&1 || { tail -30 jest.log; exit 1; }
+          done
 
       - name: io-bound (downloads, image pulls, waits)
         if: matrix.workload == 'io-bound'
