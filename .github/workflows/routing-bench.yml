@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 2
       matrix:
         workload: [rust-compile, go-build-test, ts-typecheck, io-bound]
         rep: ${{ fromJSON(inputs.repeats) }}
