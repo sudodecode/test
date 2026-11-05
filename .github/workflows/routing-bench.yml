@@ -58,7 +58,7 @@ jobs:
             go clean -cache
             /usr/bin/time -f "build round $i: %e s, %P cpu" go build ./...
           done
-          /usr/bin/time -f "test: %e s, %P cpu" go test -count=1 ./caddyconfig/... ./modules/caddyhttp/... > test.log 2>&1 || { tail -30 test.log; exit 1; }
+          /usr/bin/time -o t.txt -f "test: %e s, %P cpu" go test -count=1 ./caddyconfig/... ./modules/caddyhttp/... > test.log 2>&1 || { tail -30 test.log; exit 1; }; cat t.txt
 
       - name: ts-typecheck (zod v3.23.8 install + tsc)
         if: matrix.workload == 'ts-typecheck'
@@ -70,7 +70,7 @@ jobs:
             /usr/bin/time -f "tsc round $i: %e s, %P cpu" npx tsc -p tsconfig.json --noEmit
           done
           for i in 1 2 3; do
-            /usr/bin/time -f "jest round $i: %e s, %P cpu" npx jest --ci --silent > jest.log 2>&1 || { tail -30 jest.log; exit 1; }
+            /usr/bin/time -o t.txt -f "jest round $i: %e s, %P cpu" npx jest --ci --silent > jest.log 2>&1 || { tail -30 jest.log; exit 1; }; cat t.txt
           done
 
       - name: io-bound (downloads, image pulls, waits)
